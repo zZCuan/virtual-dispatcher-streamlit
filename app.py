@@ -382,35 +382,55 @@ with province_logout:
 province_targets = {
     "哈尔滨市": {
         "base": 101,
-        "counties": ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"],
+        "counties": ["道里区", "南岗区", "道外区", "平房区", "松北区", "香坊区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"],
     },
     "齐齐哈尔市": {
         "base": 301,
-        "counties": ["龙沙区", "建华区", "铁锋区", "富拉尔基区", "昂昂溪区", "梅里斯区"],
+        "counties": ["龙沙区", "建华区", "铁锋区", "昂昂溪区", "富拉尔基区", "碾子山区", "梅里斯区", "龙江县", "依安县", "泰来县", "甘南县", "富裕县", "克山县", "克东县", "拜泉县", "讷河市"],
     },
     "牡丹江市": {
         "base": 401,
-        "counties": ["东安区", "西安区", "爱民区", "阳明区", "海林市", "宁安市"],
+        "counties": ["东安区", "阳明区", "爱民区", "西安区", "林口县", "绥芬河市", "海林市", "宁安市", "穆棱市", "东宁市"],
     },
     "佳木斯市": {
         "base": 501,
-        "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "汤原县"],
+        "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "桦川县", "汤原县", "同江市", "富锦市", "抚远市"],
     },
     "大庆市": {
         "base": 601,
-        "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县"],
+        "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县", "肇源县", "林甸县", "杜尔伯特县"],
     },
     "鸡西市": {
         "base": 701,
-        "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区"],
+        "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区", "鸡东县", "虎林市", "密山市"],
     },
     "双鸭山市": {
         "base": 801,
-        "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县"],
+        "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县", "宝清县", "饶河县"],
     },
     "伊春市": {
         "base": 901,
-        "counties": ["伊美区", "乌翠区", "友好区", "嘉荫县", "汤旺县", "丰林县"],
+        "counties": ["伊美区", "乌翠区", "友好区", "金林区", "嘉荫县", "汤旺县", "丰林县", "大箐山县", "南岔县", "铁力市"],
+    },
+    "七台河市": {
+        "base": 1001,
+        "counties": ["新兴区", "桃山区", "茄子河区", "勃利县"],
+    },
+    "鹤岗市": {
+        "base": 1101,
+        "counties": ["向阳区", "工农区", "南山区", "兴安区", "东山区", "兴山区", "萝北县", "绥滨县"],
+    },
+    "黑河市": {
+        "base": 1201,
+        "counties": ["爱辉区", "逊克县", "孙吴县", "北安市", "五大连池市", "嫩江市"],
+    },
+    "绥化市": {
+        "base": 1301,
+        "counties": ["北林区", "望奎县", "兰西县", "青冈县", "庆安县", "明水县", "绥棱县", "安达市", "肇东市", "海伦市"],
+    },
+    "大兴安岭地区": {
+        "base": 1401,
+        "counties": ["加格达奇区", "松岭区", "新林区", "呼中区", "呼玛县", "塔河县", "漠河市"],
     },
 }
 
@@ -445,7 +465,17 @@ with st.expander("新建调度指令", expanded=True):
             key=f"province_target_county_{target_city}",
         )
     county_index = template["counties"].index(target_county)
-    line_name = county_lines[target_county]
+    city_prefix = {
+        "哈尔滨市": "哈", "齐齐哈尔市": "齐", "牡丹江市": "牡", "佳木斯市": "佳",
+        "大庆市": "庆", "鸡西市": "鸡", "双鸭山市": "双", "伊春市": "伊",
+        "七台河市": "七", "鹤岗市": "鹤", "黑河市": "黑", "绥化市": "绥",
+        "大兴安岭地区": "兴",
+    }[target_city]
+    county_short = target_county.replace("区", "").replace("县", "").replace("市", "")[:2]
+    line_name = county_lines.get(
+        target_county,
+        f"{city_prefix}{county_short}{'甲线' if county_index % 2 == 0 else '乙线'}",
+    )
     switch_no = template["base"] + county_index * 10
     blade_no_1 = f"{switch_no}1"
     blade_no_2 = f"{switch_no}2"
@@ -480,21 +510,31 @@ with st.expander("新建调度指令", expanded=True):
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
-     "counties": ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"]},
+     "counties": ["道里区", "南岗区", "道外区", "平房区", "松北区", "香坊区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]},
     {"name": "齐齐哈尔市", "short": "齐", "load": "5.6 GW", "status": "正常",
-     "counties": ["龙沙区", "建华区", "铁锋区", "富拉尔基区", "昂昂溪区", "梅里斯区"]},
+     "counties": ["龙沙区", "建华区", "铁锋区", "昂昂溪区", "富拉尔基区", "碾子山区", "梅里斯区", "龙江县", "依安县", "泰来县", "甘南县", "富裕县", "克山县", "克东县", "拜泉县", "讷河市"]},
     {"name": "牡丹江市", "short": "牡", "load": "4.2 GW", "status": "正常",
-     "counties": ["东安区", "西安区", "爱民区", "阳明区", "海林市", "宁安市"]},
+     "counties": ["东安区", "阳明区", "爱民区", "西安区", "林口县", "绥芬河市", "海林市", "宁安市", "穆棱市", "东宁市"]},
     {"name": "佳木斯市", "short": "佳", "load": "3.9 GW", "status": "正常",
-     "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "汤原县"]},
+     "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "桦川县", "汤原县", "同江市", "富锦市", "抚远市"]},
     {"name": "大庆市", "short": "庆", "load": "6.1 GW", "status": "关注",
-     "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县"]},
+     "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县", "肇源县", "林甸县", "杜尔伯特县"]},
     {"name": "鸡西市", "short": "鸡", "load": "2.7 GW", "status": "正常",
-     "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区"]},
+     "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区", "鸡东县", "虎林市", "密山市"]},
     {"name": "双鸭山市", "short": "双", "load": "2.3 GW", "status": "正常",
-     "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县"]},
+     "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县", "宝清县", "饶河县"]},
     {"name": "伊春市", "short": "伊", "load": "1.8 GW", "status": "正常",
-     "counties": ["伊美区", "乌翠区", "友好区", "嘉荫县", "汤旺县", "丰林县"]},
+     "counties": ["伊美区", "乌翠区", "友好区", "金林区", "嘉荫县", "汤旺县", "丰林县", "大箐山县", "南岔县", "铁力市"]},
+    {"name": "七台河市", "short": "七", "load": "1.5 GW", "status": "正常",
+     "counties": ["新兴区", "桃山区", "茄子河区", "勃利县"]},
+    {"name": "鹤岗市", "short": "鹤", "load": "1.7 GW", "status": "正常",
+     "counties": ["向阳区", "工农区", "南山区", "兴安区", "东山区", "兴山区", "萝北县", "绥滨县"]},
+    {"name": "黑河市", "short": "黑", "load": "1.9 GW", "status": "正常",
+     "counties": ["爱辉区", "逊克县", "孙吴县", "北安市", "五大连池市", "嫩江市"]},
+    {"name": "绥化市", "short": "绥", "load": "3.4 GW", "status": "正常",
+     "counties": ["北林区", "望奎县", "兰西县", "青冈县", "庆安县", "明水县", "绥棱县", "安达市", "肇东市", "海伦市"]},
+    {"name": "大兴安岭地区", "short": "兴", "load": "0.9 GW", "status": "正常",
+     "counties": ["加格达奇区", "松岭区", "新林区", "呼中区", "呼玛县", "塔河县", "漠河市"]},
 ]
 
 html = dedent(
@@ -518,7 +558,7 @@ html = dedent(
     .new{border:0;border-radius:5px;background:linear-gradient(100deg,#1679c7,#25bed1);padding:12px 18px;cursor:pointer;box-shadow:0 8px 25px #087ca33a}
     .work{flex:1;display:grid;grid-template-columns:260px minmax(560px,1fr) 290px;gap:11px;padding:11px 15px;min-height:0}
     .panel{background:linear-gradient(145deg,rgba(13,31,51,.94),rgba(7,20,35,.83));border:1px solid var(--line);overflow:hidden}.ph{height:46px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font-size:12px;font-weight:700}.ph small{font-size:8px;color:#4bcda4;font-weight:400}
-    .cities{padding:7px}.cityrow{width:100%;border:1px solid transparent;background:transparent;border-radius:4px;padding:8px;display:grid;grid-template-columns:35px 1fr auto;gap:8px;align-items:center;text-align:left;cursor:pointer}.cityrow:hover{background:#14314a}.cityrow.active{background:linear-gradient(90deg,rgba(22,121,185,.32),rgba(20,72,105,.18));border-color:#259bc255;box-shadow:inset 3px 0 var(--cyan)}
+    .cities{padding:7px;max-height:570px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.cityrow{width:100%;border:1px solid transparent;background:transparent;border-radius:4px;padding:8px;display:grid;grid-template-columns:35px 1fr auto;gap:8px;align-items:center;text-align:left;cursor:pointer}.cityrow:hover{background:#14314a}.cityrow.active{background:linear-gradient(90deg,rgba(22,121,185,.32),rgba(20,72,105,.18));border-color:#259bc255;box-shadow:inset 3px 0 var(--cyan)}
     .avatar{width:31px;height:31px;display:grid;place-items:center;border:1px solid #327693;border-radius:50%;background:#143147;color:#9beafa;font-weight:700}.ci b{font-size:11px}.ci small{display:block;margin-top:3px;font-size:8px;color:#617e95}.load{font-size:8px;color:#7994a7;text-align:right}.load i{display:block;margin-top:3px;color:#46d6a3;font-style:normal}.load i.warn{color:#ffbb57}
     .all{width:calc(100% - 14px);margin:2px 7px;padding:9px;border:1px solid var(--line);background:#0e2a4055;color:#58cce7;font-size:9px}
     .network{position:relative;border:1px solid var(--line);background:radial-gradient(circle,rgba(17,62,89,.32),rgba(4,15,27,.3) 58%,rgba(4,13,24,.7));overflow:hidden}.nt{position:absolute;z-index:9;top:13px;left:17px;right:17px;display:flex;justify-content:space-between;color:#7190a6;font-size:8px}.nt>b{color:#b8d6e7;font-size:11px}.legend i{display:inline-block;width:6px;height:6px;margin:0 4px 0 9px;border-radius:50%;background:#24b3e3}.legend i:first-child{background:white;box-shadow:0 0 8px var(--cyan)}.legend i:last-of-type{border:1px solid #557d91;background:transparent}
