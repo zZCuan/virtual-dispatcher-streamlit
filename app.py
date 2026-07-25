@@ -178,9 +178,19 @@ def acknowledge_message(message_id: str) -> None:
 
 def execute_message(message_id: str) -> None:
     with connect_db() as connection:
+        ticket_row = connection.execute(
+            "SELECT ticket_no FROM dispatch_messages WHERE id=?",
+            (message_id,),
+        ).fetchone()
+        if ticket_row is None:
+            return
         connection.execute(
-            "UPDATE dispatch_messages SET status='已执行', acknowledged_at=? WHERE id=?",
-            (time.time(), message_id),
+            """
+            UPDATE dispatch_messages
+            SET status='已执行', acknowledged_at=?
+            WHERE ticket_no=?
+            """,
+            (time.time(), ticket_row[0]),
         )
         connection.commit()
 
