@@ -595,6 +595,12 @@ html = dedent(
     .cnode{border-color:#9dcfc2;background:#fff}.cnode span{background:#e4f5f0;color:#007b63}.cnode small{color:#547b71}.cnode.active{border-color:#00a779;box-shadow:0 5px 16px rgba(0,143,112,.2)}.cnode.active span{background:#008f70}
     .knode>span{border-color:#7fbcae;background:#fff}.knode.group>span{background:#00a779;border-color:#00856b;box-shadow:0 0 5px #44c7a5}.knode.selected>span{background:#f4b63d;border-color:#fff;box-shadow:0 0 9px #dc9d28}
     .knode small,.knode.selected small{color:#466f65}.olabel{background:#fff;border-color:#b9d8d0;color:#65837c}
+    .scene .orbit,.scene .province,.scene .cnode,.scene .knode,.scene .line{transition:left .55s ease,top .55s ease,opacity .4s ease,transform .55s ease,width .55s ease,height .55s ease}
+    .focusHint{position:absolute;z-index:8;top:1px;left:50%;transform:translateX(-50%);padding:5px 13px;border-radius:16px;background:#e7f5f1;border:1px solid #b9dcd3;color:#267061;font-size:8px;opacity:0;transition:.35s;pointer-events:none}
+    .scene.focused .focusHint{opacity:1}.scene.focused .citylabel,.scene.focused .countylabel{display:none}.scene.focused .outer{width:74%;height:72%;opacity:.22}.scene.focused .middle{width:60%;height:58%;opacity:.7}.scene.focused .inner{width:31%;opacity:.85}
+    .scene.focused .province{width:82px;height:82px;box-shadow:0 5px 18px rgba(0,112,88,.2)}.scene.focused .province .picon{width:34px;height:34px}.scene.focused .province b{font-size:8px}.scene.focused .province small{display:none}.scene.focused .province:after{content:"返回省级总览";position:absolute;top:88px;width:max-content;padding:4px 9px;border:1px solid #b7d9d0;border-radius:12px;background:#fff;color:#007f66;font-size:8px}
+    .scene.focused .cnode.dimmed{opacity:.28;transform:translate(-50%,-50%) scale(.72)}.scene.focused .cnode.focusCenter{width:76px;height:76px;border:2px solid #00a779;box-shadow:0 9px 25px rgba(0,127,102,.24);transform:translate(-50%,-50%) scale(1)}.scene.focused .cnode.focusCenter span{width:36px;height:36px;font-size:13px;background:#008f70;color:#fff}.scene.focused .cnode.focusCenter small{font-size:9px;font-weight:700;color:#245e51}
+    .scene.focused .knode.focusCounty{width:48px;height:28px;z-index:6}.scene.focused .knode.focusCounty>span{width:10px;height:10px;background:#fff;border:2px solid #00a779;box-shadow:0 2px 8px rgba(0,127,102,.18)}.scene.focused .knode.focusCounty small{left:25px;top:5px;padding:2px 5px;border-radius:8px;background:rgba(255,255,255,.9);color:#285f52;font-size:9px;font-weight:700;white-space:nowrap}.scene.focused .knode.focusCounty.selected>span{background:#f4b63d;border-color:#fff}
     .route{border-color:#d6e5e1;background:#f7fbfa}.mini{border-color:#82c4b3;background:#e3f4ef;color:#00745e}.rnode small,.flow em{color:#708b84}.flow{border-color:#4ab697}
     .sect{color:#254b42}.msg{border-color:#d7e5e2;background:#fff;box-shadow:0 2px 8px rgba(35,77,68,.05);cursor:pointer;transition:.2s}.msg:hover{border-color:#00a779;transform:translateY(-1px);box-shadow:0 7px 18px rgba(0,127,102,.11)}
     .meta span,.msg p{color:#718a84}.audio{background:#e8f4f1}.play{background:#008f70;color:#fff}.wave b{background:#00a779}.delivery{color:#008b6c}
@@ -613,7 +619,7 @@ html = dedent(
       <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>28</b><em>100% 送达</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
-        <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
+        <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
         <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div class="msg" id="message" onclick="openRecord('哈西甲乙线转检修','省调 → 哈尔滨市调','已送达 · 已签收','拉开哈西甲乙线 101 开关；拉开 1011 刀闸；拉开 1012 刀闸；操作完成后立即回令。')"><div class="meta"><b>哈西甲乙线转检修</b><span id="msgtime">14:18</span></div><p id="msgroute">省调 → 哈尔滨市调</p><button class="audio" onclick="event.stopPropagation();speakText()"><span class="play" id="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>00:18</em></button><div class="delivery">✓ 已送达　✓ 已签收</div></div><div class="msg" onclick="openRecord('北部断面负荷调整','省调 → 齐齐哈尔市调','已执行','调整北部断面负荷分配，核对潮流状态，执行完成后向省调回令。')"><div class="meta"><b>北部断面负荷调整</b><span>13:42</span></div><p>省调 → 齐齐哈尔市调</p><div class="delivery">✓ 已执行</div></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
@@ -632,19 +638,38 @@ html = dedent(
       {line:"双宝乙线",switchNo:"801",blade1:"8011",blade2:"8012"},
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
-    let active=0,selected="南岗区";
+    let active=0,selected=cities[0].counties[0],focused=false;
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
       const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load">${c.load}<i class="${c.status==="关注"?"warn":""}">${c.status}</i></span></button>`).join("");
       const scene=document.getElementById("scene");scene.querySelectorAll(".dynamic").forEach(e=>e.remove());
-      cities.forEach((c,i)=>{const p=polar(i,cities.length,28);const l=line(50,50,28,p.a,i===active,"dynamic");scene.appendChild(l);const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)});
+      scene.classList.toggle("focused",focused);
+      const province=scene.querySelector(".province");province.style.left=focused?"16%":"50%";province.style.top="50%";
+      const center={x:54,y:50};
+      cities.forEach((c,i)=>{
+        const base=polar(i,cities.length,focused?39:28);
+        const p=focused?(i===active?center:{x:54+(base.x-50),y:50+(base.y-50)}):base;
+        if(!focused||i===active){const sx=focused?16:50,sy=50,dx=p.x-sx,dy=p.y-sy;scene.appendChild(line(sx,sy,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),i===active,"dynamic"))}
+        const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
+      });
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
-      cities.forEach((c,ci)=>c.counties.forEach(name=>{const p=polar(k++,total,46);const cp=polar(ci,cities.length,28);if(ci===active){const dx=p.x-cp.x,dy=p.y-cp.y;scene.appendChild(line(cp.x,cp.y,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),true,"dynamic"))}const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${ci===active?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;render()};scene.appendChild(n)}));
+      cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
+        let p;
+        if(focused){
+          if(ci!==active){k++;return}
+          const split=Math.ceil(c.counties.length/2),outer=countyIndex>=split,ri=outer?countyIndex-split:countyIndex,rn=outer?c.counties.length-split:split,r=outer?36:23,rp=polar(ri,rn,r);
+          p={x:center.x+(rp.x-50),y:center.y+(rp.y-50)}
+          const dx=p.x-center.x,dy=p.y-center.y;scene.appendChild(line(center.x,center.y,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),name===selected,"dynamic"));
+        }else p=polar(k,total,46);
+        k++;
+        const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render()};scene.appendChild(n)
+      }));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度中心</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度中心</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
       document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
     }
-    function selectCity(i){active=i;selected=cities[i].counties[0];render()}
+    function selectCity(i){active=i;selected=cities[i].counties[0];focused=true;render()}
+    function selectProvince(){focused=false;render()}
     function syncTicketToTarget(){
       const t=ticketTemplates[active];
       document.getElementById("taskName").value=`${t.line}由运行转检修`;
