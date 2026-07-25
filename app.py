@@ -333,28 +333,80 @@ with province_logout:
         st.query_params.clear()
         st.rerun()
 
-with st.expander("新建操作票并下发至哈尔滨市", expanded=True):
-    target_col, task_col = st.columns([1, 2])
-    with target_col:
+province_targets = {
+    "哈尔滨市": {
+        "line": "哈西甲乙线", "switch": "101", "blade1": "1011", "blade2": "1012",
+        "counties": ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"],
+    },
+    "齐齐哈尔市": {
+        "line": "齐南甲线", "switch": "301", "blade1": "3011", "blade2": "3012",
+        "counties": ["龙沙区", "建华区", "铁锋区", "富拉尔基区", "昂昂溪区", "梅里斯区"],
+    },
+    "牡丹江市": {
+        "line": "牡东乙线", "switch": "401", "blade1": "4011", "blade2": "4012",
+        "counties": ["东安区", "西安区", "爱民区", "阳明区", "海林市", "宁安市"],
+    },
+    "佳木斯市": {
+        "line": "佳东甲线", "switch": "501", "blade1": "5011", "blade2": "5012",
+        "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "汤原县"],
+    },
+    "大庆市": {
+        "line": "庆北乙线", "switch": "601", "blade1": "6011", "blade2": "6012",
+        "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县"],
+    },
+    "鸡西市": {
+        "line": "鸡冠甲线", "switch": "701", "blade1": "7011", "blade2": "7012",
+        "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区"],
+    },
+    "双鸭山市": {
+        "line": "双宝乙线", "switch": "801", "blade1": "8011", "blade2": "8012",
+        "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县"],
+    },
+    "伊春市": {
+        "line": "伊美甲线", "switch": "901", "blade1": "9011", "blade2": "9012",
+        "counties": ["伊美区", "乌翠区", "友好区", "嘉荫县", "汤旺县", "丰林县"],
+    },
+}
+
+with st.expander("新建调度指令", expanded=True):
+    city_col, county_col = st.columns(2)
+    with city_col:
+        target_city = st.selectbox("接收地市", list(province_targets), key="province_target_city")
+    template = province_targets[target_city]
+    with county_col:
         target_county = st.selectbox(
-            "目标区县节点",
-            ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"],
+            "关联区县节点",
+            template["counties"],
+            key=f"province_target_county_{target_city}",
         )
-    with task_col:
-        operation_title = st.text_input("操作任务", value="哈西甲乙线由运行转检修")
+
+    operation_title = st.text_input(
+        "调度任务",
+        value=f"{template['line']}由运行转检修",
+        key=f"operation_title_{target_city}",
+    )
     operation_steps = st.text_area(
-        "操作步骤（可逐项修改）",
+        "操作票内容（可逐项修改）",
         value=(
-            "第一项，拉开哈西甲乙线 101 开关。\n"
-            "第二项，拉开哈西甲乙线 1011 刀闸。\n"
-            "第三项，拉开哈西甲乙线 1012 刀闸。"
+            f"第一项，拉开{template['line']} {template['switch']} 开关。\n"
+            f"第二项，拉开{template['line']} {template['blade1']} 刀闸。\n"
+            f"第三项，拉开{template['line']} {template['blade2']} 刀闸。"
         ),
         height=120,
+        key=f"operation_steps_{target_city}",
     )
-    st.caption("接收方：哈尔滨市调度中心　·　传输方式：共享调度消息队列　·　语音：接收端按需播放")
-    if st.button("生成操作票并下发", type="primary", use_container_width=True):
-        ticket = send_message(target_county, operation_title, operation_steps)
-        st.success(f"操作票 {ticket} 已下发至哈尔滨市调度中心，等待对方签收。")
+    st.caption(
+        f"接收方：{target_city}调度中心　·　关联节点：{target_county}　·　"
+        "操作票是调度指令的结构化正文，不再设置第二个重复入口"
+    )
+    if st.button("确认并下发调度指令", type="primary", use_container_width=True):
+        ticket = send_message(
+            target_county,
+            operation_title,
+            operation_steps,
+            receiver=f"{target_city}调度中心",
+        )
+        st.success(f"调度指令 {ticket} 已下发至{target_city}调度中心，等待对方签收。")
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
@@ -448,10 +500,10 @@ html = dedent(
     <body>
     <div class="app">
       <header class="top"><div class="brand"><div class="logo">⌁</div><div><b>龙江电网 · 虚拟配网调度中心</b><small>HEILONGJIANG VIRTUAL DISPATCH NETWORK</small></div></div><div class="online"><i class="dot"></i>全域智能体在线 <span class="clock" id="clock">14:26:08</span></div></header>
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>28</b><em>100% 送达</em></div></div><button class="new" onclick="openModal()">＋ 新建调度指令</button></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>28</b><em>100% 送达</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div><button class="all">查看全部 13 个地市　→</button></aside>
-        <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><button class="province" onclick="openModal()"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></button></div></div>
+        <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
         <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div class="msg" id="message" onclick="openRecord('哈西甲乙线转检修','省调 → 哈尔滨市调','已送达 · 已签收','拉开哈西甲乙线 101 开关；拉开 1011 刀闸；拉开 1012 刀闸；操作完成后立即回令。')"><div class="meta"><b>哈西甲乙线转检修</b><span id="msgtime">14:18</span></div><p id="msgroute">省调 → 哈尔滨市调</p><button class="audio" onclick="event.stopPropagation();speakText()"><span class="play" id="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>00:18</em></button><div class="delivery">✓ 已送达　✓ 已签收</div></div><div class="msg" onclick="openRecord('北部断面负荷调整','省调 → 齐齐哈尔市调','已执行','调整北部断面负荷分配，核对潮流状态，执行完成后向省调回令。')"><div class="meta"><b>北部断面负荷调整</b><span>13:42</span></div><p>省调 → 齐齐哈尔市调</p><div class="delivery">✓ 已执行</div></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
