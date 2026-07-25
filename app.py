@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
+from pypinyin import lazy_pinyin
 
 
 st.set_page_config(
@@ -62,10 +63,6 @@ network_component = components.declare_component(
 )
 DEMO_ACCOUNTS = {
     "hlj_province": {"password": "demo123", "role": "province", "name": "黑龙江省级调度账号"},
-    "harbin_city": {"password": "demo123", "role": "harbin", "name": "哈尔滨市级调度账号"},
-    "nangang_county": {
-        "password": "demo123", "role": "county", "name": "南岗区县级调度账号", "county": "南岗区"
-    },
 }
 
 
@@ -195,7 +192,7 @@ def send_message(
     receiver: str = "哈尔滨市调度中心",
     request_key: str | None = None,
 ) -> str:
-    ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
+    ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     content = (
         f"{receiver}调度员，请执行以下操作票任务。{title}。"
         f"{steps.replace(chr(10), '；')}。"
@@ -262,8 +259,10 @@ def execute_message(message_id: str, executed_by: str) -> None:
 
 def forward_message_to_county(message: sqlite3.Row) -> None:
     county = message["target_county"]
+    city_center = message["receiver"]
+    city_name = city_center.removesuffix("调度中心")
     forwarded_content = message["content"].replace(
-        "哈尔滨市调度中心调度员",
+        f"{city_center}调度员",
         f"{county}调度员",
         1,
     )
@@ -277,8 +276,8 @@ def forward_message_to_county(message: sqlite3.Row) -> None:
             (
                 uuid.uuid4().hex,
                 time.time(),
-                "哈尔滨市调度中心",
-                f"{county}调度智能体",
+                city_center,
+                county_agent_id(city_name, county),
                 message["title"],
                 message["ticket_no"],
                 county,
@@ -318,16 +317,17 @@ def load_messages_for(receiver: str) -> list[sqlite3.Row]:
     return rows
 
 
-def load_harbin_messages() -> list[sqlite3.Row]:
+def load_city_messages(city_name: str) -> list[sqlite3.Row]:
+    city_center = f"{city_name}调度中心"
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
         """
         SELECT * FROM dispatch_messages
-        WHERE receiver='哈尔滨市调度中心'
-           OR sender='哈尔滨市调度中心'
+        WHERE receiver=? OR sender=?
         ORDER BY created_at DESC LIMIT 50
-        """
+        """,
+        (city_center, city_center),
     ).fetchall()
     connection.close()
     return rows
@@ -392,6 +392,7 @@ def render_login() -> None:
                 st.session_state["auth_role"] = account["role"]
                 st.session_state["auth_name"] = account["name"]
                 st.session_state["auth_county"] = account.get("county")
+                st.session_state["auth_city"] = account.get("city")
                 st.session_state["auth_username"] = username.strip()
                 st.rerun()
             else:
@@ -400,7 +401,8 @@ def render_login() -> None:
         """
         <div class="demo-accounts">
           演示账号：省级 <b>hlj_province</b>　·　市级 <b>harbin_city</b>　·　
-          区县级 <b>nangang_county</b>　　统一密码：<b>demo123</b>
+          区县级 <b>nangang_county</b>　　统一密码：<b>demo123</b><br>
+          已配置 1 个省级、13 个市级、125 个区县级账号；市/区县账号采用“地区全拼 + 权限后缀”。
         </div>
         """,
         unsafe_allow_html=True,
@@ -517,21 +519,21 @@ def render_harbin_workspace() -> None:
                         forward_message_to_county(message); st.rerun()
 
 
-def render_harbin_dashboard() -> None:
-    touch_agent("哈尔滨市调度中心", "city")
+def render_city_dashboard(city_name: str, counties: list[str], username: str) -> None:
+    city_center = f"{city_name}调度中心"
+    touch_agent(city_center, "city")
     online_agents = load_online_agents()
-    counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]
     online_counties = [
-        county for county in counties if f"{county}调度智能体" in online_agents
+        county for county in counties if county_agent_id(city_name, county) in online_agents
     ]
-    rows = load_harbin_messages()
+    rows = load_city_messages(city_name)
     message_data = [
         {
             "id": row["id"], "title": row["title"], "sender": row["sender"],
             "receiver": row["receiver"],
             "county": row["target_county"], "ticket": row["ticket_no"],
             "content": row["content"], "status": row["status"],
-            "direction": "outgoing" if row["sender"] == "哈尔滨市调度中心" else "incoming",
+            "direction": "outgoing" if row["sender"] == city_center else "incoming",
             "time": format_beijing_time(row["created_at"]),
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
@@ -540,9 +542,9 @@ def render_harbin_dashboard() -> None:
     ]
     unread = sum(
         1 for row in rows
-        if row["receiver"] == "哈尔滨市调度中心" and row["status"] == "已送达"
+        if row["receiver"] == city_center and row["status"] == "已送达"
     )
-    forwarded = sum(1 for row in rows if row["sender"] == "哈尔滨市调度中心")
+    forwarded = sum(1 for row in rows if row["sender"] == city_center)
     html = dedent(
         r"""
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
@@ -560,9 +562,9 @@ def render_harbin_dashboard() -> None:
         .brand b{font-size:22px}.brand small{font-size:10px}.title small{font-size:11px}.title b{font-size:19px}.stat span{font-size:11px}.stat b{font-size:21px}.stat em{font-size:10px}.ph{font-size:14px}.ph small{font-size:10px}.county b{font-size:13px}.county small,.online{font-size:10px}.head b{font-size:13px}.head span,.route,.meta{font-size:10px}.body{font-size:11px}.actions button{font-size:10px}.node b{font-size:12px}.node small,.flow,.health{font-size:9px}
         </style></head><body><div class="app">
         <header class="top"><div class="brand"><b>龙江电网 · 哈尔滨市虚拟配网调度中心</b><small>HARBIN VIRTUAL DISPATCH NETWORK · 当前账号：harbin_city（市级调度权限）</small></div><button class="logout" onclick="post({action:'logout'})">退出账号</button></header>
-        <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>__COUNTY_ONLINE__</b><em>/ 18 在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
+        <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>__COUNTY_ONLINE__</b><em>/ __COUNTY_TOTAL__ 在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
         <section class="work">
-          <aside class="panel"><div class="ph"><span>区县调度</span><small>__COUNTY_ONLINE__ / 18 在线</small></div><div class="countyList" id="countyList"></div></aside>
+          <aside class="panel"><div class="ph"><span>区县调度</span><small>__COUNTY_ONLINE__ / __COUNTY_TOTAL__ 在线</small></div><div class="countyList" id="countyList"></div></aside>
           <main class="panel"><div class="ph"><span>调度操作票记录</span><div class="recordTabs"><button id="incomingTab" class="active" onclick="setRecordType('incoming')">省调接收</button><button id="outgoingTab" onclick="setRecordType('outgoing')">市调下发</button></div></div><div class="inbox" id="inbox"></div></main>
           <aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级指令源</small><b>黑龙江省调度中心</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>当前接收</small><b>哈尔滨市调度中心</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>转发目标</small><b id="chainCounty">南岗区智能体</b></div></div></div><div class="health">● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用</div></aside>
         </section><footer class="foot"><span>● 市级知识底座同步正常</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
@@ -585,12 +587,19 @@ def render_harbin_dashboard() -> None:
         setInterval(()=>{if(speaking<0&&!document.getElementById("modal").classList.contains("show"))post({action:"refresh"})},5000);
         </script></body></html>
         """
-    ).replace("__COUNTIES__", json.dumps(counties, ensure_ascii=False)).replace(
+    ).replace("哈尔滨市", city_name).replace("南岗区", counties[0]).replace(
+        '<span class="ico">哈</span>', f'<span class="ico">{city_name[0]}</span>'
+    ).replace(
+        "HARBIN", CITY_SLUGS[city_name].upper()
+    ).replace("harbin_city", username).replace(
+        "__COUNTIES__", json.dumps(counties, ensure_ascii=False)
+    ).replace(
         "__ONLINE_COUNTIES__", json.dumps(online_counties, ensure_ascii=False)
     ).replace(
         "__MESSAGES__", json.dumps(message_data, ensure_ascii=False)
     ).replace("__COUNTY_ONLINE__", str(len(online_counties))).replace(
-        "__UNREAD__", str(unread)
+        "__COUNTY_TOTAL__", str(len(counties))
+    ).replace("__UNREAD__", str(unread)
     ).replace("__FORWARDED__", str(forwarded))
     result = network_component(html=html, height=930, key="harbin_dashboard", default=None)
     if isinstance(result, dict):
@@ -599,7 +608,7 @@ def render_harbin_dashboard() -> None:
             st.session_state["harbin_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
+                for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
                     st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.rerun()
@@ -614,7 +623,7 @@ def render_harbin_dashboard() -> None:
                 send_message(
                     result["county"], result.get("title") or "区域配网运行方式调整",
                     result.get("steps") or "核对线路状态并执行操作。",
-                    sender="哈尔滨市调度中心", receiver=f'{result["county"]}调度智能体',
+                    sender=city_center, receiver=county_agent_id(city_name, result["county"]),
                     request_key=f"downstream:{nonce}",
                 )
                 st.rerun()
@@ -673,9 +682,10 @@ def render_county_workspace(county: str) -> None:
                     st.rerun()
 
 
-def render_county_dashboard(county: str) -> None:
-    touch_agent(f"{county}调度智能体", "county")
-    rows = load_messages_for(f"{county}调度智能体")
+def render_county_dashboard(county: str, city_name: str, username: str) -> None:
+    agent_id = county_agent_id(city_name, county)
+    touch_agent(agent_id, "county")
+    rows = load_messages_for(agent_id)
     messages = [
         {
             "id": row["id"], "title": row["title"], "ticket": row["ticket_no"],
@@ -699,6 +709,9 @@ def render_county_dashboard(county: str) -> None:
         <section class="work"><aside class="panel"><div class="ph"><span>区县智能体</span><small>1 / 1 在线</small></div><div class="assetList"><div class="agentProfile"><div class="agentAvatar">南岗</div><b>__COUNTY__调度智能体</b><small>账号：nangang_county</small><span class="agentOnline">● 当前在线</span></div><div class="sectionTitle">核心能力</div><div class="capability"><span>调度指令接收</span><i>正常</i></div><div class="capability"><span>操作票解析</span><i>正常</i></div><div class="capability"><span>AI 语音播报</span><i>可用</i></div><div class="capability"><span>执行回令</span><i>畅通</i></div><div class="sectionTitle">运行信息</div><div class="runtime">知识底座：已同步<br>心跳周期：60 秒<br>链路加密：已启用<br>权限级别：区县级执行</div></div></aside><main class="panel"><div class="ph"><span>市调下发操作票</span><small>新指令按时间置顶</small></div><div class="inbox" id="inbox"></div></main><aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级源头</small><b>黑龙江省调度中心</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>市级转发</small><b>哈尔滨市调度中心</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>当前接收</small><b>__COUNTY__调度智能体</b></div></div></div><div class="health">● 区县链路在线<br>● 操作票自动接收<br>● 语音服务可用<br>● 执行回令通道正常</div></aside></section><footer class="foot"><span>● __COUNTY__知识底座同步正常</span><span>北京时间 · STREAMLIT DEMO</span></footer></div>
         <script>const messages=__MESSAGES__;let speaking=-1;const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}function render(){const box=document.getElementById("inbox");box.innerHTML=(__PENDING__?`<div class="notice">收到 ${__PENDING__} 条待执行操作票，请及时处理并回令。</div>`:"")+(messages.length?messages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'execute',id:'${m.id}'})">执行完成并回令</button>`:""}</div></article>`).join(""):'<div class="empty">当前暂无市调下发操作票。</div>')}function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}render();setInterval(()=>{if(speaking<0)post({action:"refresh"})},5000);</script></body></html>
         """
+    ).replace("哈尔滨市", city_name).replace("nangang_county", username).replace(
+        '<div class="agentAvatar">南岗</div>',
+        f'<div class="agentAvatar">{county.removesuffix("区").removesuffix("县").removesuffix("市")[:2]}</div>',
     ).replace("__COUNTY__", county).replace(
         "__MESSAGES__", json.dumps(messages, ensure_ascii=False)
     ).replace("__PENDING__", str(pending)).replace("__EXECUTED__", str(executed))
@@ -709,7 +722,7 @@ def render_county_dashboard(county: str) -> None:
             st.session_state["county_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
+                for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
                     st.session_state.pop(key, None)
                 st.rerun()
             if action == "refresh":
@@ -724,34 +737,10 @@ def render_county_dashboard(county: str) -> None:
 
 
 if st.query_params.get("logout") == "1":
-    for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
+    for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
         st.session_state.pop(key, None)
     st.query_params.clear()
     st.rerun()
-
-role = st.session_state.get("auth_role")
-if role not in {"province", "harbin", "county"}:
-    render_login()
-    st.stop()
-if role == "harbin":
-    render_harbin_dashboard()
-    st.stop()
-if role == "county":
-    render_county_dashboard(st.session_state.get("auth_county") or "南岗区")
-    st.stop()
-
-touch_agent("黑龙江省调度中心", "province")
-
-st.markdown(
-    """
-    <div class="workspace-brand">
-      <b>龙江电网 · 虚拟配网调度中心</b>
-      <small>当前账号：hlj_province　·　省级调度权限　·　指令下发工作台</small>
-      <a class="workspace-logout" href="/?logout=1" target="_self">退出账号</a>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
 province_targets = {
     "哈尔滨市": {
@@ -926,11 +915,6 @@ def render_operation_ticket_dialog() -> None:
         st.rerun()
 
 
-if st.session_state.get("open_operation_ticket_dialog", False):
-    render_operation_ticket_dialog()
-if dispatch_success := st.session_state.pop("dispatch_success", None):
-    st.toast(dispatch_success, icon="✅")
-
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
      "counties": ["道里区", "南岗区", "道外区", "平房区", "松北区", "香坊区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]},
@@ -959,6 +943,105 @@ CITIES = [
     {"name": "大兴安岭地区", "short": "兴", "load": "0.9 GW", "status": "正常",
      "counties": ["加格达奇区", "松岭区", "新林区", "呼中区", "呼玛县", "塔河县", "漠河市"]},
 ]
+
+
+def region_slug(name: str) -> str:
+    core = name
+    for suffix in ("自治县", "地区", "市", "区", "县"):
+        if core.endswith(suffix):
+            core = core.removesuffix(suffix)
+            break
+    return "".join(lazy_pinyin(core)).replace(" ", "")
+
+
+city_by_name = {city["name"]: city for city in CITIES}
+CITY_SLUGS = {
+    "哈尔滨市": "harbin",
+    "齐齐哈尔市": "qiqihar",
+    "牡丹江市": "mudanjiang",
+    "佳木斯市": "jiamusi",
+    "大庆市": "daqing",
+    "鸡西市": "jixi",
+    "双鸭山市": "shuangyashan",
+    "伊春市": "yichun",
+    "七台河市": "qitaihe",
+    "鹤岗市": "hegang",
+    "黑河市": "heihe",
+    "绥化市": "suihua",
+    "大兴安岭地区": "daxinganling",
+}
+county_occurrences: dict[str, int] = {}
+for city in CITIES:
+    for county in city["counties"]:
+        county_occurrences[county] = county_occurrences.get(county, 0) + 1
+
+
+def county_agent_id(city_name: str, county: str) -> str:
+    if county_occurrences.get(county, 0) > 1:
+        return f"{city_name}{county}调度智能体"
+    return f"{county}调度智能体"
+
+
+for city in CITIES:
+    city_slug = CITY_SLUGS[city["name"]]
+    city_username = f"{city_slug}_city"
+    DEMO_ACCOUNTS[city_username] = {
+        "password": "demo123",
+        "role": "city",
+        "name": f'{city["name"]}级调度账号',
+        "city": city["name"],
+    }
+    for county in city["counties"]:
+        county_slug = region_slug(county)
+        if county_occurrences[county] > 1:
+            county_slug = f"{city_slug}_{county_slug}"
+        county_username = f"{county_slug}_county"
+        DEMO_ACCOUNTS[county_username] = {
+            "password": "demo123",
+            "role": "county",
+            "name": f"{county}级调度账号",
+            "city": city["name"],
+            "county": county,
+        }
+
+role = st.session_state.get("auth_role")
+if role not in {"province", "city", "county"}:
+    render_login()
+    st.stop()
+if role == "city":
+    authenticated_city = st.session_state.get("auth_city") or "哈尔滨市"
+    city_config = city_by_name[authenticated_city]
+    render_city_dashboard(
+        authenticated_city,
+        city_config["counties"],
+        st.session_state.get("auth_username") or f"{CITY_SLUGS[authenticated_city]}_city",
+    )
+    st.stop()
+if role == "county":
+    render_county_dashboard(
+        st.session_state.get("auth_county") or "南岗区",
+        st.session_state.get("auth_city") or "哈尔滨市",
+        st.session_state.get("auth_username") or "nangang_county",
+    )
+    st.stop()
+
+touch_agent("黑龙江省调度中心", "province")
+
+st.markdown(
+    """
+    <div class="workspace-brand">
+      <b>龙江电网 · 虚拟配网调度中心</b>
+      <small>当前账号：hlj_province　·　省级调度权限　·　指令下发工作台</small>
+      <a class="workspace-logout" href="/?logout=1" target="_self">退出账号</a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if st.session_state.get("open_operation_ticket_dialog", False):
+    render_operation_ticket_dialog()
+if dispatch_success := st.session_state.pop("dispatch_success", None):
+    st.toast(dispatch_success, icon="✅")
 
 online_agents = load_online_agents()
 for city in CITIES:
