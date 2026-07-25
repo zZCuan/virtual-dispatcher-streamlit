@@ -348,12 +348,89 @@ def render_harbin_workspace() -> None:
                         forward_message_to_county(message); st.rerun()
 
 
+def render_harbin_dashboard() -> None:
+    counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]
+    rows = load_messages_for("哈尔滨市调度中心")
+    message_data = [
+        {
+            "id": row["id"], "title": row["title"], "sender": row["sender"],
+            "county": row["target_county"], "ticket": row["ticket_no"],
+            "content": row["content"], "status": row["status"],
+            "time": time.strftime("%m-%d %H:%M:%S", time.localtime(row["created_at"])),
+        }
+        for row in rows
+    ]
+    unread = sum(1 for row in rows if row["status"] == "已送达")
+    forwarded = sum(1 for row in rows if row["status"] == "已转发")
+    html = dedent(
+        r"""
+        <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+        :root{--green:#007f66;--bright:#00a779;--text:#193a33;--muted:#708a84;--line:#d6e5e1;--bg:#eef5f3}
+        *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;overflow:hidden}
+        button{font:inherit}.app{height:930px;display:flex;flex-direction:column}.top{height:70px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(105deg,#006c58,#169b79);color:#fff}.brand b{font-size:18px;letter-spacing:2px}.brand small{display:block;margin-top:5px;color:#ccebe3;font-size:8px;letter-spacing:2px}.logout{padding:8px 15px;border:1px solid #ffffff88;border-radius:6px;color:#fff;text-decoration:none;font-size:10px;background:#ffffff12;cursor:pointer}
+        .bar{height:82px;padding:0 28px;display:flex;align-items:center;background:#fff;border-bottom:1px solid var(--line)}.title{min-width:230px}.title small{display:block;color:var(--green);font-size:8px;letter-spacing:2px}.title b{font-size:17px}.stats{display:flex;flex:1}.stat{min-width:135px;padding:0 25px;border-left:1px solid var(--line)}.stat span{display:block;color:var(--muted);font-size:8px}.stat b{font-size:21px;color:var(--green)}.stat em{font-size:8px;color:var(--bright);font-style:normal;margin-left:5px}.new{height:40px;padding:0 18px;border:0;border-radius:7px;background:linear-gradient(105deg,var(--green),var(--bright));color:#fff;font-size:10px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px #007f6630}
+        .work{flex:1;display:grid;grid-template-columns:260px minmax(550px,1fr) 290px;gap:11px;padding:11px 15px;min-height:0}.panel{background:#fff;border:1px solid var(--line);overflow:hidden;box-shadow:0 4px 14px #1c4a400f}.ph{height:46px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-bottom:1px solid var(--line);font-size:11px;font-weight:700}.ph small{font-size:8px;color:var(--bright);font-weight:400}
+        .countyList{height:655px;padding:7px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.county{height:52px;margin-bottom:4px;padding:7px 9px;display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:8px;border:1px solid transparent;border-radius:5px}.county:hover,.county.active{background:#e7f5f1;border-color:#a8d8cb}.avatar{width:31px;height:31px;display:grid;place-items:center;border:1px solid #77bdaa;border-radius:50%;background:#e7f5f1;color:var(--green);font-weight:700}.county b{font-size:10px}.county small{display:block;color:#78918b;font-size:7px}.online{color:var(--bright);font-size:7px}
+        .inbox{height:701px;overflow-y:auto;padding:10px;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--green);font-size:9px}.empty{padding:45px;text-align:center;color:var(--muted);font-size:10px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--line);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--bright);box-shadow:0 4px 13px #007f6615}.head{display:flex;justify-content:space-between}.head b{font-size:11px}.head span,.route{color:var(--muted);font-size:8px}.route{margin:6px 0}.body{padding:9px 10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:9px;line-height:1.7}.meta{margin-top:7px;color:var(--muted);font-size:8px}.actions{display:flex;gap:6px;margin-top:9px}.actions button{height:30px;padding:0 11px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:8px;cursor:pointer}.actions button.primary{border:0;background:var(--green);color:#fff}.actions button:hover{border-color:var(--bright)}
+        .chain{margin:11px;padding:14px;border:1px solid var(--line);background:#f8fbfa}.node{display:flex;gap:9px;align-items:center}.ico{width:29px;height:29px;display:grid;place-items:center;border:1px solid #86c5b5;border-radius:50%;background:#e4f5f0;color:var(--green);font-size:8px}.node small{display:block;color:var(--muted);font-size:7px}.node b{font-size:9px}.flow{height:29px;margin-left:14px;border-left:1px dashed var(--bright);padding:9px;color:var(--muted);font-size:7px}.health{margin:11px;padding:12px;background:#e9f6f2;color:var(--green);font-size:8px;line-height:2}
+        .back{display:none;position:fixed;z-index:20;inset:0;background:#123d3466;place-items:center}.back.show{display:grid}.modal{width:min(650px,calc(100vw - 30px));padding:20px;border-radius:10px;background:#fff;box-shadow:0 24px 70px #103f363d}.mh{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}.close{border:0;background:none;font-size:22px}.field{margin-top:12px}.field label{display:block;margin-bottom:5px;color:var(--muted);font-size:9px}.field select,.field input,.field textarea{width:100%;padding:9px;border:1px solid #bddbd3;color:var(--text);background:#fff}.field textarea{height:110px;resize:vertical}.send{width:100%;height:38px;margin-top:13px;border:0;border-radius:6px;background:var(--green);color:#fff;cursor:pointer}
+        .foot{height:28px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-top:1px solid var(--line);color:var(--muted);font-size:7px}
+        </style></head><body><div class="app">
+        <header class="top"><div class="brand"><b>龙江电网 · 哈尔滨市虚拟配网调度中心</b><small>HARBIN VIRTUAL DISPATCH NETWORK · 指令接收与区县转发</small></div><button class="logout" onclick="post({action:'logout'})">退出账号</button></header>
+        <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>18</b><em>在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
+        <section class="work">
+          <aside class="panel"><div class="ph"><span>区县调度</span><small>18 / 18 在线</small></div><div class="countyList" id="countyList"></div></aside>
+          <main class="panel"><div class="ph"><span>省调下发指令</span><small>新指令按时间置顶</small></div><div class="inbox" id="inbox"></div></main>
+          <aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级指令源</small><b>黑龙江省调度中心</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>当前接收</small><b>哈尔滨市调度中心</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>转发目标</small><b id="chainCounty">南岗区智能体</b></div></div></div><div class="health">● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用</div></aside>
+        </section><footer class="foot"><span>● 市级知识底座同步正常</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
+        <div class="back" id="modal"><section class="modal"><div class="mh"><div><b>向下属区县新建操作票</b><small style="display:block;color:#708a84;margin-top:4px">发布地区按当前选中区县自动填充</small></div><button class="close" onclick="closeModal()">×</button></div><div class="field"><label>接收区县</label><select id="targetCounty"></select></div><div class="field"><label>调度任务</label><input id="taskTitle" value="区域配网运行方式调整"></div><div class="field"><label>操作步骤</label><textarea id="taskSteps">第一项，核对当前线路运行状态。
+第二项，执行指定开关操作。
+第三项，复核并向哈尔滨市调回令。</textarea></div><button class="send" onclick="sendDownstream()">确认并下发操作票</button></section></div>
+        <script>
+        const counties=__COUNTIES__,messages=__MESSAGES__;let selectedCounty="南岗区",speaking=-1;
+        const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
+        function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>`<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online">● 在线</i></div>`).join("")}
+        function selectCounty(c){selectedCounty=c;document.getElementById("chainCounty").textContent=c+"智能体";renderCounties()}
+        function renderInbox(){const box=document.getElementById("inbox");box.innerHTML=(__UNREAD__?`<div class="notice">收到 ${__UNREAD__} 条新调度指令，请及时签收并转发。</div>`:"")+(messages.length?messages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`).join(""):'<div class="empty">正在监听省级调度中心，暂无待接收指令。</div>')}
+        function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
+        function openModal(){document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===selectedCounty?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
+        function sendDownstream(){post({action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value})}
+        renderCounties();renderInbox();
+        </script></body></html>
+        """
+    ).replace("__COUNTIES__", json.dumps(counties, ensure_ascii=False)).replace(
+        "__MESSAGES__", json.dumps(message_data, ensure_ascii=False)
+    ).replace("__UNREAD__", str(unread)).replace("__FORWARDED__", str(forwarded))
+    result = network_component(html=html, height=930, key="harbin_dashboard", default=None)
+    if isinstance(result, dict):
+        nonce = result.get("nonce")
+        if nonce != st.session_state.get("harbin_action_nonce"):
+            st.session_state["harbin_action_nonce"] = nonce
+            action = result.get("action")
+            if action == "logout":
+                st.query_params.clear()
+                st.rerun()
+            elif action in {"ack", "forward"}:
+                message = next((row for row in rows if row["id"] == result.get("id")), None)
+                if message is not None:
+                    acknowledge_message(message["id"]) if action == "ack" else forward_message_to_county(message)
+                    st.rerun()
+            elif action == "downstream" and result.get("county") in counties:
+                send_message(
+                    result["county"], result.get("title") or "区域配网运行方式调整",
+                    result.get("steps") or "核对线路状态并执行操作。",
+                    sender="哈尔滨市调度中心", receiver=f'{result["county"]}调度智能体',
+                )
+                st.rerun()
+
+
 role = st.query_params.get("role", "")
 if role not in {"province", "harbin"}:
     render_login()
     st.stop()
 if role == "harbin":
-    render_harbin_workspace()
+    render_harbin_dashboard()
     st.stop()
 
 st.markdown(
