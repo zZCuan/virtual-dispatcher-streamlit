@@ -1,0 +1,14 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+fileWatcherType = "poll"
+
+[theme]
+base = "dark"
+primaryColor = "#27C9DD"
+backgroundColor = "#07111F"
+secondaryBackgroundColor = "#0B1F33"
+textColor = "#EAF8FF"
+font = "sans serif"
