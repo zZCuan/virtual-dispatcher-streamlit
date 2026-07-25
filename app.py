@@ -591,11 +591,16 @@ def render_operation_ticket_dialog() -> None:
             operation_steps,
             receiver=f"{target_city}调度中心",
         )
-        st.success(f"操作票 {ticket} 已下发至{target_city}调度中心。")
+        st.session_state["dispatch_success"] = (
+            f"操作票 {ticket} 已下发至{target_city}调度中心。"
+        )
+        st.rerun()
 
 
 if st.session_state.pop("open_operation_ticket_dialog", False):
     render_operation_ticket_dialog()
+if dispatch_success := st.session_state.pop("dispatch_success", None):
+    st.toast(dispatch_success, icon="✅")
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
@@ -627,6 +632,16 @@ CITIES = [
 ]
 
 today_command_count, today_delivery_text = load_today_dispatch_stats()
+recent_dispatches = [
+    {
+        "title": row["title"],
+        "route": f'{row["sender"]} → {row["receiver"]}',
+        "time": time.strftime("%H:%M", time.localtime(row["created_at"])),
+        "content": row["content"],
+        "status": row["status"],
+    }
+    for row in load_messages()[:8]
+]
 focused_city_name = st.session_state.get("network_focus_city")
 focused_city_index = next(
     (index for index, city in enumerate(CITIES) if city["name"] == focused_city_name),
@@ -672,6 +687,7 @@ html = dedent(
     .olabel{position:absolute;padding:3px 7px;border:1px solid #24546b;border-radius:10px;background:#071827dd;color:#577b91;font-size:7px;letter-spacing:1px}.citylabel{left:50%;top:16%;transform:translateX(-50%)}.countylabel{left:50%;bottom:0;transform:translateX(-50%)}
     .route{margin:10px;padding:13px;border:1px solid #21506a;background:#0b2438aa}.rnode{display:flex;align-items:center;gap:10px}.mini{width:30px;height:30px;display:grid;place-items:center;border:1px solid #319cc0;border-radius:50%;background:#143c53;font-size:9px;font-weight:700}.rnode small{display:block;font-size:7px;color:#5d7b90}.rnode b{font-size:10px}.flow{height:32px;margin-left:15px;border-left:1px dashed #28bed4;position:relative}.flow:after{content:"";position:absolute;width:4px;height:4px;border-radius:50%;background:#fff;left:-2.5px;animation:down 1.4s linear infinite;box-shadow:0 0 6px var(--cyan)}@keyframes down{from{top:1px}to{top:28px}}.flow em{position:absolute;left:9px;top:10px;font-size:7px;color:#3d7288;font-style:normal}
     .sect{padding:6px 11px;display:flex;justify-content:space-between;font-size:10px;font-weight:700}.msg{margin:7px 9px;padding:10px;border:1px solid #1e4a62;background:#0d2638a8}.msg.flash{border-color:#30cfe4;box-shadow:0 0 18px #27bed125}.meta{display:flex;justify-content:space-between;font-size:9px}.meta span,.msg p{font-size:7px;color:#65869a}.audio{width:100%;height:29px;border:0;background:#12354a;display:flex;align-items:center;gap:8px;cursor:pointer}.play{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#27acc4;font-size:7px}.wave{flex:1;display:flex;align-items:center;gap:3px}.wave b{width:2px;height:5px;background:#48bbce;animation:wave .8s ease-in-out infinite alternate}.wave b:nth-child(2n){height:12px}.wave b:nth-child(3n){height:8px}@keyframes wave{to{transform:scaleY(.35)}}.audio em{font-size:7px;color:#7698aa;font-style:normal}.delivery{margin-top:7px;text-align:right;font-size:7px;color:#50d7a5}
+    #recentMessages{max-height:390px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}
     .foot{height:28px;padding:0 20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:#49677b;font-size:7px}
     .back{display:none;position:fixed;z-index:20;inset:0;background:rgba(2,9,17,.84);backdrop-filter:blur(5px);place-items:center}.back.show{display:grid}.modal{width:min(650px,calc(100vw - 30px));padding:19px;border:1px solid #2a7896;background:linear-gradient(145deg,#102e45,#081b2d);box-shadow:0 24px 80px #000a}.mh{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:1px solid var(--line)}.mh b{font-size:16px}.mh small{display:block;margin-top:5px;color:#7190a6;font-size:8px}.close{border:0;background:transparent;font-size:24px;cursor:pointer}.steps{height:53px;display:flex;align-items:center;justify-content:center;gap:7px;color:#7592a6;font-size:8px}.steps b{width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#1c8fb4;color:#fff}.steps i{width:35px;border-top:1px dashed #386980}
     .ticket{border:1px solid #2d6177;background:#091f30;padding:12px}.tickethead{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:10px;font-size:8px}.tickethead span{color:#67869a}.ticket ol{margin:11px 0 0;padding:0;list-style:none}.ticket li{padding:7px;margin-top:5px;background:#102c3e;font-size:9px}.ticket li em{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:9px;border-radius:50%;background:#1b6982;color:#8fe4f0;font-size:7px;font-style:normal}.target{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:9px;align-items:center;padding:12px 0;font-size:8px}.target span{color:#68869a}.target b{padding:8px;border:1px solid #24536a;background:#0a2234;font-weight:400}.actions{display:flex;justify-content:flex-end;gap:8px}.actions button{padding:10px 15px;border:1px solid #2b6076;background:#102c3e;cursor:pointer;font-size:9px}.actions .send{border:0;background:linear-gradient(100deg,#1679c7,#25bed1)}
@@ -723,7 +739,7 @@ html = dedent(
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
-        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div class="msg" id="message" onclick="openRecord('哈西甲乙线转检修','省调 → 哈尔滨市调','已送达 · 已签收','拉开哈西甲乙线 101 开关；拉开 1011 刀闸；拉开 1012 刀闸；操作完成后立即回令。')"><div class="meta"><b>哈西甲乙线转检修</b><span id="msgtime">14:18</span></div><p id="msgroute">省调 → 哈尔滨市调</p><button class="audio" onclick="event.stopPropagation();speakText()"><span class="play" id="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>00:18</em></button><div class="delivery">✓ 已送达　✓ 已签收</div></div><div class="msg" onclick="openRecord('北部断面负荷调整','省调 → 齐齐哈尔市调','已执行','调整北部断面负荷分配，核对潮流状态，执行完成后向省调回令。')"><div class="meta"><b>北部断面负荷调整</b><span>13:42</span></div><p>省调 → 齐齐哈尔市调</p><div class="delivery">✓ 已执行</div></div></aside>
+        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div id="recentMessages"></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
@@ -731,6 +747,7 @@ html = dedent(
     <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
     <script>
     const cities=__CITIES__;
+    const recentMessages=__RECENT_MESSAGES__;
     const ticketTemplates=[
       {line:"哈西甲乙线",switchNo:"101",blade1:"1011",blade2:"1012"},
       {line:"齐南甲线",switchNo:"301",blade1:"3011",blade2:"3012"},
@@ -778,6 +795,23 @@ html = dedent(
     }
     function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
     function selectProvince(){focused=false;render()}
+    function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
+    let speakingIndex=-1;
+    function renderRecent(){
+      const box=document.getElementById("recentMessages");
+      if(!recentMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">今日暂无调度指令</div>';return}
+      box.innerHTML=recentMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p>${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}</div></div>`).join("");
+      box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=recentMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
+      box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});
+    }
+    function toggleMessageSpeech(index){
+      if(!("speechSynthesis" in window))return;
+      if(speakingIndex===index){speechSynthesis.cancel();speakingIndex=-1;renderRecent();return}
+      speechSynthesis.cancel();speakingIndex=index;renderRecent();
+      const u=new SpeechSynthesisUtterance(recentMessages[index].content);u.lang="zh-CN";u.rate=.88;
+      u.onend=u.onerror=()=>{if(speakingIndex===index){speakingIndex=-1;renderRecent()}};
+      speechSynthesis.speak(u);
+    }
     function syncTicketToTarget(){
       const t=ticketTemplates[active];
       document.getElementById("taskName").value=`${t.line}由运行转检修`;
@@ -796,11 +830,13 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});document.getElementById("clock").textContent=t;document.getElementById("footclock").textContent=t},1000);render();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();renderRecent();
     </script>
     </body></html>
     """
 ).replace("__CITIES__", json.dumps(CITIES, ensure_ascii=False)).replace(
+    "__RECENT_MESSAGES__", json.dumps(recent_dispatches, ensure_ascii=False)
+).replace(
     "__TODAY_COUNT__", str(today_command_count)
 ).replace("__TODAY_STATUS__", today_delivery_text).replace(
     "__ACTIVE_INDEX__", str(focused_city_index)
