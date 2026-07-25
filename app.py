@@ -165,6 +165,31 @@ def load_messages_for(receiver: str) -> list[sqlite3.Row]:
     return rows
 
 
+def load_today_dispatch_stats() -> tuple[int, str]:
+    """Return today's real province-originated instruction count and delivery summary."""
+    now = time.localtime()
+    day_start = time.mktime(
+        (now.tm_year, now.tm_mon, now.tm_mday, 0, 0, 0, 0, 0, -1)
+    )
+    with connect_db() as connection:
+        total, delivered = connection.execute(
+            """
+            SELECT
+                COUNT(*),
+                SUM(CASE WHEN status IN ('已送达', '已签收', '已转发', '已执行')
+                         THEN 1 ELSE 0 END)
+            FROM dispatch_messages
+            WHERE sender='黑龙江省调度中心' AND created_at>=?
+            """,
+            (day_start,),
+        ).fetchone()
+    total = int(total or 0)
+    delivered = int(delivered or 0)
+    if total == 0:
+        return 0, "暂无下发"
+    return total, f"{round(delivered / total * 100)}% 送达"
+
+
 def render_login() -> None:
     st.markdown(
         """
@@ -537,6 +562,8 @@ CITIES = [
      "counties": ["加格达奇区", "松岭区", "新林区", "呼中区", "呼玛县", "塔河县", "漠河市"]},
 ]
 
+today_command_count, today_delivery_text = load_today_dispatch_stats()
+
 html = dedent(
     r"""
     <!doctype html>
@@ -619,7 +646,7 @@ html = dedent(
     <body>
     <div class="app">
       <header class="top"><div class="brand"><div class="logo">⌁</div><div><b>龙江电网 · 虚拟配网调度中心</b><small>HEILONGJIANG VIRTUAL DISPATCH NETWORK</small></div></div><div class="online"><i class="dot"></i>全域智能体在线 <span class="clock" id="clock">14:26:08</span></div></header>
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>28</b><em>100% 送达</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
@@ -698,6 +725,8 @@ html = dedent(
     </script>
     </body></html>
     """
-).replace("__CITIES__", json.dumps(CITIES, ensure_ascii=False))
+).replace("__CITIES__", json.dumps(CITIES, ensure_ascii=False)).replace(
+    "__TODAY_COUNT__", str(today_command_count)
+).replace("__TODAY_STATUS__", today_delivery_text)
 
 components.html(html, height=930, scrolling=False)
