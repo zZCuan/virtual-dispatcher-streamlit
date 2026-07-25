@@ -239,171 +239,113 @@ def render_login() -> None:
 
 
 def render_harbin_workspace() -> None:
-    top_left, top_right = st.columns([5, 1])
-    with top_left:
-        st.markdown("# 哈尔滨市调度中心")
-        st.caption("HARBIN VIRTUAL DISPATCH AGENT · 指令接收工作台")
-    with top_right:
-        if st.button("退出账号", use_container_width=True):
-            st.query_params.clear()
-            st.rerun()
+    counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]
+    messages = load_messages_for("哈尔滨市调度中心")
+    unread = sum(1 for item in messages if item["status"] == "已送达")
+    forwarded = sum(1 for item in messages if item["status"] == "已转发")
 
     st.markdown(
         """
-        <div style="display:flex;gap:14px;margin:6px 0 18px">
-          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
-          background:#fff;border-radius:6px"><small style="color:#68847d">上级通信</small>
-          <b style="display:block;margin-top:5px;color:#193a33">黑龙江省调度中心</b></div>
-          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
-          background:#fff;border-radius:6px"><small style="color:#68847d">链路状态</small>
-          <b style="display:block;margin-top:5px;color:#008f70">● 专线在线 · 自动接收</b></div>
-          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
-          background:#fff;border-radius:6px"><small style="color:#68847d">当前账号</small>
-          <b style="display:block;margin-top:5px;color:#193a33">哈尔滨市级调度员</b></div>
+        <div class="workspace-brand">
+          <b>龙江电网 · 哈尔滨市虚拟配网调度中心</b>
+          <small>哈尔滨市级调度账号　·　指令接收与区县转发工作台</small>
+          <a class="workspace-logout" href="/" target="_self">退出账号</a>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"]
-    network_nodes = "".join(
-        f"""
-        <div style="display:flex;flex-direction:column;align-items:center;gap:7px">
-          <div style="width:48px;height:48px;border:1px solid #39d7ee;border-radius:50%;
-          display:grid;place-items:center;background:#113149;color:#dffaff;
-          box-shadow:0 0 14px rgba(57,215,238,.24)">区</div>
-          <small style="color:#9fc4d5">{county}</small>
-        </div>
-        """
-        for county in counties
-    )
-    st.markdown(
-        f"""
-        <div style="padding:20px;margin:4px 0 18px;border:1px solid #cfe3de;
-        background:radial-gradient(circle at center,#e6f5f1,#fff 68%);border-radius:8px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:18px">
-            <b>哈尔滨市 · 区县智能体网络</b>
-            <span style="color:#48dba7;font-size:12px">● 8 / 8 在线 · 独立链路</span>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap">
-            <div style="display:flex;flex-direction:column;align-items:center;gap:7px;margin-right:10px">
-              <div style="width:76px;height:76px;border:2px solid #5ce4f2;border-radius:50%;
-              display:grid;place-items:center;background:#008f70;color:white;font-weight:700;
-              box-shadow:0 8px 22px rgba(0,143,112,.22)">哈尔滨</div>
-              <small style="color:#54766e">市级调度智能体</small>
-            </div>
-            <div style="width:38px;border-top:1px dashed #008f70"></div>
-            {network_nodes}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    with st.expander("向下属区县新建调度指令", expanded=True):
-        county_col, title_col = st.columns([1, 2])
-        with county_col:
-            downstream_county = st.selectbox("接收区县", counties, key="downstream_county")
-        with title_col:
-            downstream_title = st.text_input(
-                "调度任务",
-                value="区域配网运行方式调整",
-                key="downstream_title",
-            )
+    @st.dialog("向下属区县新建操作票", width="large")
+    def downstream_dialog() -> None:
+        downstream_county = st.selectbox("接收区县", counties, key="downstream_county")
+        downstream_title = st.text_input("调度任务", value="区域配网运行方式调整", key="downstream_title")
         downstream_steps = st.text_area(
             "操作步骤（可修改）",
             value="第一项，核对当前线路运行状态。\n第二项，执行指定开关操作。\n第三项，复核并向哈尔滨市调回令。",
-            height=110,
+            height=130,
             key="downstream_steps",
         )
-        if st.button(
-            f"下发至{downstream_county}智能体",
-            type="primary",
-            use_container_width=True,
-            key="send_downstream",
-        ):
+        if st.button(f"下发至{downstream_county}智能体", type="primary", use_container_width=True):
             ticket = send_message(
-                downstream_county,
-                downstream_title,
-                downstream_steps,
-                sender="哈尔滨市调度中心",
-                receiver=f"{downstream_county}调度智能体",
+                downstream_county, downstream_title, downstream_steps,
+                sender="哈尔滨市调度中心", receiver=f"{downstream_county}调度智能体",
             )
-            st.success(f"操作票 {ticket} 已下发至{downstream_county}调度智能体。")
+            st.toast(f"操作票 {ticket} 已下发", icon="✅")
 
-    @st.fragment(run_every="2s")
-    def inbox() -> None:
-        messages = load_messages_for("哈尔滨市调度中心")
-        st.markdown("### 省调下发指令")
+    stats, action = st.columns([6, 1], vertical_alignment="center")
+    with stats:
+        st.markdown(
+            f"""
+            <div style="display:flex;height:76px;align-items:center;background:#fff;border-bottom:1px solid #d6e5e1">
+              <div style="padding:0 28px"><small style="color:#68847d">市级视角</small><b style="display:block;font-size:19px">哈尔滨市调度中心</b></div>
+              <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">区县智能体</small><b style="display:block;color:#007f66;font-size:22px">18 <i style="font-size:10px">在线</i></b></div>
+              <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">待签收</small><b style="display:block;color:#d58a18;font-size:22px">{unread}</b></div>
+              <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">已转发</small><b style="display:block;color:#007f66;font-size:22px">{forwarded}</b></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with action:
+        if st.button("＋ 新建操作票", type="primary", use_container_width=True):
+            downstream_dialog()
+
+    left, center, right = st.columns([1.15, 3.2, 1.25], gap="small")
+    with left:
+        st.markdown("#### 区县智能体")
+        st.caption("18 / 18 在线 · 独立链路")
+        county_html = "".join(
+            f'<div style="padding:8px 10px;margin:5px 0;border:1px solid #d6e5e1;border-radius:6px;background:#fff"><b style="color:#007f66">区</b>　{county}<span style="float:right;color:#00a779;font-size:11px">● 在线</span></div>'
+            for county in counties
+        )
+        st.markdown(f'<div style="max-height:590px;overflow:auto">{county_html}</div>', unsafe_allow_html=True)
+    with right:
+        st.markdown("#### 当前链路")
+        st.markdown(
+            """
+            <div style="padding:16px;border:1px solid #d6e5e1;background:#fff;border-radius:7px;line-height:2">
+              <b>黑龙江省调度中心</b><br><span style="color:#00a779">↓ 省市专线</span><br>
+              <b>哈尔滨市调度中心</b><br><span style="color:#00a779">↓ 区县独立链路</span><br>
+              <b>目标区县智能体</b>
+            </div>
+            <div style="margin-top:12px;padding:14px;background:#e9f6f2;border-radius:7px;color:#00745e">
+              ● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with center:
+        st.markdown("#### 省调下发指令")
+        st.caption("新指令按时间置顶 · 卡片内完成试听、签收与转发")
         if not messages:
             st.info("正在监听省级调度中心，暂无待接收指令。")
-            return
-
-        unread = sum(1 for item in messages if item["status"] == "已送达")
-        if unread:
-            st.success(f"收到 {unread} 条新调度指令，请及时签收。")
-
-        for index, message in enumerate(messages):
+        for message in messages:
             is_new = message["status"] == "已送达"
-            border = "#008f70" if is_new else "#cfe3de"
-            created = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["created_at"]))
-            st.markdown(
-                f"""
-                <div style="padding:18px 20px;margin:10px 0 4px;border:1px solid {border};
-                border-left:4px solid {border};border-radius:6px;background:#fff;
-                box-shadow:0 4px 14px rgba(32,77,67,.06);color:#193a33">
-                  <div style="display:flex;justify-content:space-between;gap:16px">
-                    <b style="font-size:17px">{message['title']}</b>
-                    <span style="color:#7892a9;font-size:12px">{created}</span>
-                  </div>
-                  <div style="margin:8px 0;color:#68847d;font-size:13px">
-                    第一段：{message['sender']} → {message['receiver']}<br>
-                    下一段待转发：{message['receiver']} → {message['target_county']}调度智能体
-                  </div>
-                  <div style="padding:11px 13px;background:#f3f8f6;border:1px solid #dceae6;
-                  border-radius:4px;font-size:13px;color:#294c44">
-                    操作票号：{message['ticket_no']}<br>{message['content']}
-                  </div>
-                  <div style="margin-top:9px;color:#008f70;font-size:12px">市级处理状态：{message['status']}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            action_left, action_right, _ = st.columns([1, 1, 4])
-            with action_left:
-                if is_new and st.button("签收指令", key=f"ack-{message['id']}", type="primary"):
-                    acknowledge_message(message["id"])
-                    st.rerun()
-            with action_right:
-                if message["status"] == "已签收" and st.button(
-                    f"转发至{message['target_county']}",
-                    key=f"forward-{message['id']}",
-                    type="primary",
-                ):
-                    forward_message_to_county(message)
-                    st.rerun()
-                elif message["status"] != "已签收" and st.button(
-                    "播放语音",
-                    key=f"voice-{message['id']}",
-                ):
-                    voice_text = json.dumps(message["content"], ensure_ascii=False)
-                    components.html(
-                        f"""
-                        <script>
-                        const utterance = new SpeechSynthesisUtterance({voice_text});
-                        utterance.lang = "zh-CN";
-                        utterance.rate = 0.88;
-                        window.speechSynthesis.cancel();
-                        window.speechSynthesis.speak(utterance);
-                        </script>
-                        <div style="font:13px sans-serif;color:#48dba7">正在播放 AI 调度语音…</div>
-                        """,
-                        height=32,
-                    )
-            if index == 0:
-                st.caption("页面每 2 秒自动同步一次，省级窗口下发后无需手动刷新。")
-
-    inbox()
+            created = time.strftime("%m-%d %H:%M:%S", time.localtime(message["created_at"]))
+            border = "#00a779" if is_new else "#cfe3de"
+            with st.container(border=True):
+                st.markdown(
+                    f"**{message['title']}**　　<span style='color:#78928b;font-size:12px'>{created}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"{message['sender']} → 哈尔滨市调度中心 → {message['target_county']}智能体")
+                st.markdown(
+                    f"<div style='padding:10px 12px;border-left:3px solid {border};background:#f4f8f7;font-size:13px'>{message['content']}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"操作票号：{message['ticket_no']}　·　状态：{message['status']}")
+                play, stop, process, spacer = st.columns([1, 1, 1.4, 2])
+                with play:
+                    if st.button("▶ 试听", key=f"voice-{message['id']}", use_container_width=True):
+                        voice_text = json.dumps(message["content"], ensure_ascii=False)
+                        components.html(f"<script>speechSynthesis.cancel();const u=new SpeechSynthesisUtterance({voice_text});u.lang='zh-CN';u.rate=.88;speechSynthesis.speak(u)</script>", height=0)
+                with stop:
+                    if st.button("■ 停止", key=f"stop-{message['id']}", use_container_width=True):
+                        components.html("<script>speechSynthesis.cancel()</script>", height=0)
+                with process:
+                    if is_new and st.button("签收指令", key=f"ack-{message['id']}", type="primary", use_container_width=True):
+                        acknowledge_message(message["id"]); st.rerun()
+                    elif message["status"] == "已签收" and st.button(f"转发至{message['target_county']}", key=f"forward-{message['id']}", type="primary", use_container_width=True):
+                        forward_message_to_county(message); st.rerun()
 
 
 role = st.query_params.get("role", "")
