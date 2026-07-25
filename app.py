@@ -57,13 +57,17 @@ def connect_db() -> sqlite3.Connection:
     return connection
 
 
-def send_message(target_county: str, title: str) -> str:
+def send_message(
+    target_county: str,
+    title: str,
+    steps: str,
+    sender: str = "黑龙江省调度中心",
+    receiver: str = "哈尔滨市调度中心",
+) -> str:
     ticket_no = f"HLJ-{time.strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
     content = (
-        f"哈尔滨市调度员，请执行以下操作票任务。{title}。"
-        "第一项，拉开哈西甲乙线一零一开关。"
-        "第二项，拉开哈西甲乙线一零一一刀闸。"
-        "第三项，拉开哈西甲乙线一零一二刀闸。"
+        f"{receiver}调度员，请执行以下操作票任务。{title}。"
+        f"{steps.replace(chr(10), '；')}。"
         "操作完成后立即回令。"
     )
     with connect_db() as connection:
@@ -76,8 +80,8 @@ def send_message(target_county: str, title: str) -> str:
             (
                 uuid.uuid4().hex,
                 time.time(),
-                "黑龙江省调度中心",
-                "哈尔滨市调度中心",
+                sender,
+                receiver,
                 title,
                 ticket_no,
                 target_county,
@@ -103,6 +107,21 @@ def load_messages() -> list[sqlite3.Row]:
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
         "SELECT * FROM dispatch_messages ORDER BY created_at DESC LIMIT 20"
+    ).fetchall()
+    connection.close()
+    return rows
+
+
+def load_messages_for(receiver: str) -> list[sqlite3.Row]:
+    connection = connect_db()
+    connection.row_factory = sqlite3.Row
+    rows = connection.execute(
+        """
+        SELECT * FROM dispatch_messages
+        WHERE receiver=?
+        ORDER BY created_at DESC LIMIT 20
+        """,
+        (receiver,),
     ).fetchall()
     connection.close()
     return rows
@@ -165,9 +184,75 @@ def render_harbin_workspace() -> None:
         unsafe_allow_html=True,
     )
 
+    counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"]
+    network_nodes = "".join(
+        f"""
+        <div style="display:flex;flex-direction:column;align-items:center;gap:7px">
+          <div style="width:48px;height:48px;border:1px solid #39d7ee;border-radius:50%;
+          display:grid;place-items:center;background:#113149;color:#dffaff;
+          box-shadow:0 0 14px rgba(57,215,238,.24)">区</div>
+          <small style="color:#9fc4d5">{county}</small>
+        </div>
+        """
+        for county in counties
+    )
+    st.markdown(
+        f"""
+        <div style="padding:20px;margin:4px 0 18px;border:1px solid rgba(57,215,238,.24);
+        background:radial-gradient(circle at center,rgba(23,93,122,.28),#081827 65%);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:18px">
+            <b>哈尔滨市 · 区县智能体网络</b>
+            <span style="color:#48dba7;font-size:12px">● 8 / 8 在线 · 独立链路</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:7px;margin-right:10px">
+              <div style="width:76px;height:76px;border:2px solid #5ce4f2;border-radius:50%;
+              display:grid;place-items:center;background:#146080;color:white;font-weight:700;
+              box-shadow:0 0 24px rgba(57,215,238,.38)">哈尔滨</div>
+              <small style="color:#9fc4d5">市级调度智能体</small>
+            </div>
+            <div style="width:38px;border-top:1px dashed #39d7ee"></div>
+            {network_nodes}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("向下属区县新建调度指令", expanded=True):
+        county_col, title_col = st.columns([1, 2])
+        with county_col:
+            downstream_county = st.selectbox("接收区县", counties, key="downstream_county")
+        with title_col:
+            downstream_title = st.text_input(
+                "调度任务",
+                value="区域配网运行方式调整",
+                key="downstream_title",
+            )
+        downstream_steps = st.text_area(
+            "操作步骤（可修改）",
+            value="第一项，核对当前线路运行状态。\n第二项，执行指定开关操作。\n第三项，复核并向哈尔滨市调回令。",
+            height=110,
+            key="downstream_steps",
+        )
+        if st.button(
+            f"下发至{downstream_county}智能体",
+            type="primary",
+            use_container_width=True,
+            key="send_downstream",
+        ):
+            ticket = send_message(
+                downstream_county,
+                downstream_title,
+                downstream_steps,
+                sender="哈尔滨市调度中心",
+                receiver=f"{downstream_county}调度智能体",
+            )
+            st.success(f"操作票 {ticket} 已下发至{downstream_county}调度智能体。")
+
     @st.fragment(run_every="2s")
     def inbox() -> None:
-        messages = load_messages()
+        messages = load_messages_for("哈尔滨市调度中心")
         st.markdown("### 省调下发指令")
         if not messages:
             st.info("正在监听省级调度中心，暂无待接收指令。")
@@ -252,10 +337,46 @@ with st.expander("新建操作票并下发至哈尔滨市", expanded=True):
         )
     with task_col:
         operation_title = st.text_input("操作任务", value="哈西甲乙线由运行转检修")
+    operation_steps = st.text_area(
+        "操作步骤（可逐项修改）",
+        value=(
+            "第一项，拉开哈西甲乙线 101 开关。\n"
+            "第二项，拉开哈西甲乙线 1011 刀闸。\n"
+            "第三项，拉开哈西甲乙线 1012 刀闸。"
+        ),
+        height=120,
+    )
     st.caption("接收方：哈尔滨市调度中心　·　传输方式：共享调度消息队列　·　语音：接收端按需播放")
     if st.button("生成操作票并下发", type="primary", use_container_width=True):
-        ticket = send_message(target_county, operation_title)
+        ticket = send_message(target_county, operation_title, operation_steps)
         st.success(f"操作票 {ticket} 已下发至哈尔滨市调度中心，等待对方签收。")
+
+with st.expander("最近调度指令（点击展开）", expanded=False):
+    recent_messages = load_messages()
+    province_messages = [
+        item for item in recent_messages if item["sender"] == "黑龙江省调度中心"
+    ]
+    if not province_messages:
+        st.caption("暂无已下发指令。")
+    for item in province_messages:
+        created = time.strftime("%m-%d %H:%M:%S", time.localtime(item["created_at"]))
+        with st.expander(f"{item['title']}　→ 哈尔滨市调　{created}　[{item['status']}]"):
+            st.write(f"**操作票号：** {item['ticket_no']}")
+            st.write(f"**目标区县：** {item['target_county']}")
+            st.write(item["content"])
+            if st.button("播放该指令语音", key=f"province-play-{item['id']}"):
+                voice_text = json.dumps(item["content"], ensure_ascii=False)
+                components.html(
+                    f"""
+                    <script>
+                    const u = new SpeechSynthesisUtterance({voice_text});
+                    u.lang = "zh-CN"; u.rate = 0.88;
+                    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+                    </script>
+                    <div style="font:13px sans-serif;color:#48dba7">正在播放调度语音…</div>
+                    """,
+                    height=30,
+                )
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
