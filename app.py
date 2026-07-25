@@ -318,6 +318,21 @@ def load_messages_for(receiver: str) -> list[sqlite3.Row]:
     return rows
 
 
+def load_harbin_messages() -> list[sqlite3.Row]:
+    connection = connect_db()
+    connection.row_factory = sqlite3.Row
+    rows = connection.execute(
+        """
+        SELECT * FROM dispatch_messages
+        WHERE receiver='哈尔滨市调度中心'
+           OR sender='哈尔滨市调度中心'
+        ORDER BY created_at DESC LIMIT 50
+        """
+    ).fetchall()
+    connection.close()
+    return rows
+
+
 def load_today_dispatch_stats() -> tuple[int, str]:
     """Return today's real province-originated instruction count and delivery summary."""
     now = beijing_datetime()
@@ -509,20 +524,25 @@ def render_harbin_dashboard() -> None:
     online_counties = [
         county for county in counties if f"{county}调度智能体" in online_agents
     ]
-    rows = load_messages_for("哈尔滨市调度中心")
+    rows = load_harbin_messages()
     message_data = [
         {
             "id": row["id"], "title": row["title"], "sender": row["sender"],
+            "receiver": row["receiver"],
             "county": row["target_county"], "ticket": row["ticket_no"],
             "content": row["content"], "status": row["status"],
+            "direction": "outgoing" if row["sender"] == "哈尔滨市调度中心" else "incoming",
             "time": format_beijing_time(row["created_at"]),
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
         }
         for row in rows
     ]
-    unread = sum(1 for row in rows if row["status"] == "已送达")
-    forwarded = sum(1 for row in rows if row["status"] == "已转发")
+    unread = sum(
+        1 for row in rows
+        if row["receiver"] == "哈尔滨市调度中心" and row["status"] == "已送达"
+    )
+    forwarded = sum(1 for row in rows if row["sender"] == "哈尔滨市调度中心")
     html = dedent(
         r"""
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
@@ -543,7 +563,7 @@ def render_harbin_dashboard() -> None:
         <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>__COUNTY_ONLINE__</b><em>/ 18 在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
         <section class="work">
           <aside class="panel"><div class="ph"><span>区县调度</span><small>__COUNTY_ONLINE__ / 18 在线</small></div><div class="countyList" id="countyList"></div></aside>
-          <main class="panel"><div class="ph"><span>省调下发指令</span><small id="filterLabel">全部区县 · 新指令按时间置顶</small></div><div class="inbox" id="inbox"></div></main>
+          <main class="panel"><div class="ph"><span>调度操作票记录</span><small id="filterLabel">全部区县 · 最新记录按时间置顶</small></div><div class="inbox" id="inbox"></div></main>
           <aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级指令源</small><b>黑龙江省调度中心</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>当前接收</small><b>哈尔滨市调度中心</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>转发目标</small><b id="chainCounty">南岗区智能体</b></div></div></div><div class="health">● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用</div></aside>
         </section><footer class="foot"><span>● 市级知识底座同步正常</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
         <div class="back" id="modal"><section class="modal"><div class="mh"><div><b>向下属区县新建操作票</b><small style="display:block;color:#708a84;margin-top:4px">发布地区按当前选中区县自动填充</small></div><button class="close" onclick="closeModal()">×</button></div><div class="field"><label>接收区县</label><select id="targetCounty"></select></div><div class="field"><label>调度任务</label><input id="taskTitle" value="区域配网运行方式调整"></div><div class="field"><label>操作步骤</label><textarea id="taskSteps">第一项，核对当前线路运行状态。
@@ -555,11 +575,11 @@ def render_harbin_dashboard() -> None:
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
         function raiseFonts(){}
         function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>{const on=onlineCounties.has(c);return `<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online" style="color:${on?"#00a779":"#a0ada9"}">● ${on?"在线":"离线"}</i></div>`}).join("");raiseFonts()}
-        function selectCounty(c){selectedCounty=selectedCounty===c?"":c;document.getElementById("chainCounty").textContent=selectedCounty?selectedCounty+"智能体":"目标区县智能体";document.getElementById("filterLabel").textContent=selectedCounty?`仅显示 ${selectedCounty} · 再次点击取消筛选`:"全部区县 · 新指令按时间置顶";renderCounties();renderInbox()}
-        function renderInbox(){const box=document.getElementById("inbox"),visible=selectedCounty?messages.filter(m=>m.county===selectedCounty):messages,newCount=visible.filter(m=>m.status==="已送达").length;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m);return `<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty+"暂无相关调度指令":"正在监听省级调度中心，暂无待接收指令。"}</div>`);raiseFonts()}
+        function selectCounty(c){selectedCounty=selectedCounty===c?"":c;document.getElementById("chainCounty").textContent=selectedCounty?selectedCounty+"智能体":"目标区县智能体";document.getElementById("filterLabel").textContent=selectedCounty?`仅显示 ${selectedCounty} · 再次点击取消筛选`:"全部区县 · 最新记录按时间置顶";renderCounties();renderInbox()}
+        function renderInbox(){const box=document.getElementById("inbox"),visible=selectedCounty?messages.filter(m=>m.county===selectedCounty):messages,newCount=visible.filter(m=>m.direction==="incoming"&&m.status==="已送达").length;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m),incoming=m.direction==="incoming",route=incoming?`${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体`:`哈尔滨市调度中心 → ${esc(m.county)}调度智能体`;return `<article class="card ${incoming&&m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${route}</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${incoming&&m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${incoming&&m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty+"暂无相关操作票记录":"当前暂无调度操作票记录。"}</div>`);raiseFonts()}
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
         function openModal(){const target=selectedCounty||"南岗区";document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===target?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
-        function sendDownstream(){post({action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value})}
+        function sendDownstream(){const button=document.querySelector(".modal .send");if(button.disabled)return;button.disabled=true;button.textContent="正在下发…";const payload={action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value};closeModal();post(payload)}
         renderCounties();renderInbox();raiseFonts();
         setInterval(()=>{if(speaking<0&&!document.getElementById("modal").classList.contains("show"))post({action:"refresh"})},5000);
         </script></body></html>
