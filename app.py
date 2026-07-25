@@ -76,8 +76,39 @@ def connect_db() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_presence (
+            agent_id TEXT PRIMARY KEY,
+            level TEXT NOT NULL,
+            last_seen REAL NOT NULL
+        )
+        """
+    )
     connection.commit()
     return connection
+
+
+def touch_agent(agent_id: str, level: str) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            """
+            INSERT INTO agent_presence(agent_id, level, last_seen)
+            VALUES (?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET level=excluded.level, last_seen=excluded.last_seen
+            """,
+            (agent_id, level, time.time()),
+        )
+        connection.commit()
+
+
+def load_online_agents(max_age_seconds: int = 300) -> set[str]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT agent_id FROM agent_presence WHERE last_seen>=?",
+            (time.time() - max_age_seconds,),
+        ).fetchall()
+    return {row[0] for row in rows}
 
 
 def send_message(
@@ -349,7 +380,12 @@ def render_harbin_workspace() -> None:
 
 
 def render_harbin_dashboard() -> None:
+    touch_agent("哈尔滨市调度中心", "city")
+    online_agents = load_online_agents()
     counties = ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]
+    online_counties = [
+        county for county in counties if f"{county}调度智能体" in online_agents
+    ]
     rows = load_messages_for("哈尔滨市调度中心")
     message_data = [
         {
@@ -379,9 +415,9 @@ def render_harbin_dashboard() -> None:
         .brand b{font-size:20px}.brand small{font-size:10px}.title small{font-size:10px}.title b{font-size:19px}.stat span{font-size:10px}.stat em{font-size:10px}.ph{font-size:13px}.ph small{font-size:10px}.county b{font-size:12px}.county small,.online{font-size:9px}.head b{font-size:13px}.head span,.route,.meta{font-size:10px}.body{font-size:11px}.actions button{font-size:10px}.node b{font-size:11px}.node small,.flow,.health{font-size:9px}
         </style></head><body><div class="app">
         <header class="top"><div class="brand"><b>龙江电网 · 哈尔滨市虚拟配网调度中心</b><small>HARBIN VIRTUAL DISPATCH NETWORK · 指令接收与区县转发</small></div><button class="logout" onclick="post({action:'logout'})">退出账号</button></header>
-        <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>18</b><em>在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
+        <section class="bar"><div class="title"><small>市域态势</small><b>哈尔滨市调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>__COUNTY_ONLINE__</b><em>/ 18 在线</em></div><div class="stat"><span>待签收</span><b>__UNREAD__</b><em>实时接收</em></div><div class="stat"><span>已转发</span><b>__FORWARDED__</b><em>区县链路</em></div></div><button class="new" onclick="openModal()">＋ 新建操作票</button></section>
         <section class="work">
-          <aside class="panel"><div class="ph"><span>区县调度</span><small>18 / 18 在线</small></div><div class="countyList" id="countyList"></div></aside>
+          <aside class="panel"><div class="ph"><span>区县调度</span><small>__COUNTY_ONLINE__ / 18 在线</small></div><div class="countyList" id="countyList"></div></aside>
           <main class="panel"><div class="ph"><span>省调下发指令</span><small id="filterLabel">全部区县 · 新指令按时间置顶</small></div><div class="inbox" id="inbox"></div></main>
           <aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级指令源</small><b>黑龙江省调度中心</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>当前接收</small><b>哈尔滨市调度中心</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>转发目标</small><b id="chainCounty">南岗区智能体</b></div></div></div><div class="health">● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用</div></aside>
         </section><footer class="foot"><span>● 市级知识底座同步正常</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
@@ -389,11 +425,11 @@ def render_harbin_dashboard() -> None:
 第二项，执行指定开关操作。
 第三项，复核并向哈尔滨市调回令。</textarea></div><button class="send" onclick="sendDownstream()">确认并下发操作票</button></section></div>
         <script>
-        const counties=__COUNTIES__,messages=__MESSAGES__;let selectedCounty="",speaking=-1;
+        const counties=__COUNTIES__,onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__;let selectedCounty="",speaking=-1;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
         function raiseFonts(){}
-        function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>`<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online">● 在线</i></div>`).join("");raiseFonts()}
+        function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>{const on=onlineCounties.has(c);return `<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online" style="color:${on?"#00a779":"#a0ada9"}">● ${on?"在线":"离线"}</i></div>`}).join("");raiseFonts()}
         function selectCounty(c){selectedCounty=selectedCounty===c?"":c;document.getElementById("chainCounty").textContent=selectedCounty?selectedCounty+"智能体":"目标区县智能体";document.getElementById("filterLabel").textContent=selectedCounty?`仅显示 ${selectedCounty} · 再次点击取消筛选`:"全部区县 · 新指令按时间置顶";renderCounties();renderInbox()}
         function renderInbox(){const box=document.getElementById("inbox"),visible=selectedCounty?messages.filter(m=>m.county===selectedCounty):messages,newCount=visible.filter(m=>m.status==="已送达").length;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m);return `<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty+"暂无相关调度指令":"正在监听省级调度中心，暂无待接收指令。"}</div>`);raiseFonts()}
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
@@ -403,8 +439,12 @@ def render_harbin_dashboard() -> None:
         </script></body></html>
         """
     ).replace("__COUNTIES__", json.dumps(counties, ensure_ascii=False)).replace(
+        "__ONLINE_COUNTIES__", json.dumps(online_counties, ensure_ascii=False)
+    ).replace(
         "__MESSAGES__", json.dumps(message_data, ensure_ascii=False)
-    ).replace("__UNREAD__", str(unread)).replace("__FORWARDED__", str(forwarded))
+    ).replace("__COUNTY_ONLINE__", str(len(online_counties))).replace(
+        "__UNREAD__", str(unread)
+    ).replace("__FORWARDED__", str(forwarded))
     result = network_component(html=html, height=930, key="harbin_dashboard", default=None)
     if isinstance(result, dict):
         nonce = result.get("nonce")
@@ -435,6 +475,8 @@ if role not in {"province", "harbin"}:
 if role == "harbin":
     render_harbin_dashboard()
     st.stop()
+
+touch_agent("黑龙江省调度中心", "province")
 
 st.markdown(
     """
@@ -653,6 +695,11 @@ CITIES = [
      "counties": ["加格达奇区", "松岭区", "新林区", "呼中区", "呼玛县", "塔河县", "漠河市"]},
 ]
 
+online_agents = load_online_agents()
+for city in CITIES:
+    city["online"] = f'{city["name"]}调度中心' in online_agents
+online_city_count = sum(1 for city in CITIES if city["online"])
+
 today_command_count, today_delivery_text = load_today_dispatch_stats()
 recent_dispatches = [
     {
@@ -759,9 +806,9 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></section>
       <section class="work">
-        <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
+        <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
         <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div id="recentMessages"></div></aside>
       </section>
@@ -789,7 +836,7 @@ html = dedent(
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
-      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load">${c.load}<i class="${c.status==="关注"?"warn":""}">${c.status}</i></span></button>`).join("");
+      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load">${c.load}<i class="${c.online?"":"warn"}">${c.online?"在线":"离线"}</i></span></button>`).join("");
       const scene=document.getElementById("scene");scene.querySelectorAll(".dynamic").forEach(e=>e.remove());
       scene.classList.toggle("focused",focused);
       const province=scene.querySelector(".province");province.style.left=focused?"16%":"50%";province.style.top="50%";
@@ -864,6 +911,8 @@ html = dedent(
 ).replace(
     "__TODAY_COUNT__", str(today_command_count)
 ).replace("__TODAY_STATUS__", today_delivery_text).replace(
+    "__CITY_ONLINE__", str(online_city_count)
+).replace(
     "__ACTIVE_INDEX__", str(focused_city_index)
 ).replace(
     "__SELECTED_COUNTY__", json.dumps(focused_county_name, ensure_ascii=False)
