@@ -296,7 +296,7 @@ def load_messages() -> list[sqlite3.Row]:
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
-        "SELECT * FROM dispatch_messages ORDER BY created_at DESC LIMIT 20"
+        "SELECT * FROM dispatch_messages ORDER BY created_at DESC"
     ).fetchall()
     connection.close()
     return rows
@@ -1053,14 +1053,22 @@ recent_dispatches = [
     {
         "title": row["title"],
         "origin": "省级下发" if row["sender"] == "黑龙江省调度中心" else "市级自主下发",
+        "method": "province" if row["sender"] == "黑龙江省调度中心" else "city",
+        "city": (
+            row["sender"].removesuffix("调度中心")
+            if row["sender"] != "黑龙江省调度中心"
+            else row["receiver"].removesuffix("调度中心")
+        ),
+        "county": row["target_county"],
         "route": f'{row["sender"]} → {row["receiver"]}',
-        "time": format_beijing_time(row["created_at"], "%H:%M"),
+        "time": format_beijing_time(row["created_at"], "%m-%d %H:%M"),
+        "createdAt": int(row["created_at"] * 1000),
         "content": row["content"],
         "status": row["status"],
         "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
         "executedBy": row["executed_by"] or "",
     }
-    for row in load_messages()[:8]
+    for row in load_messages()
 ]
 focused_city_name = st.session_state.get("network_focus_city")
 focused_city_index = next(
@@ -1107,7 +1115,8 @@ html = dedent(
     .olabel{position:absolute;padding:3px 7px;border:1px solid #24546b;border-radius:10px;background:#071827dd;color:#577b91;font-size:7px;letter-spacing:1px}.citylabel{left:50%;top:16%;transform:translateX(-50%)}.countylabel{left:50%;bottom:0;transform:translateX(-50%)}
     .route{margin:10px;padding:13px;border:1px solid #21506a;background:#0b2438aa}.rnode{display:flex;align-items:center;gap:10px}.mini{width:30px;height:30px;display:grid;place-items:center;border:1px solid #319cc0;border-radius:50%;background:#143c53;font-size:9px;font-weight:700}.rnode small{display:block;font-size:7px;color:#5d7b90}.rnode b{font-size:10px}.flow{height:32px;margin-left:15px;border-left:1px dashed #28bed4;position:relative}.flow:after{content:"";position:absolute;width:4px;height:4px;border-radius:50%;background:#fff;left:-2.5px;animation:down 1.4s linear infinite;box-shadow:0 0 6px var(--cyan)}@keyframes down{from{top:1px}to{top:28px}}.flow em{position:absolute;left:9px;top:10px;font-size:7px;color:#3d7288;font-style:normal}
     .sect{padding:6px 11px;display:flex;justify-content:space-between;font-size:10px;font-weight:700}.msg{margin:7px 9px;padding:10px;border:1px solid #1e4a62;background:#0d2638a8}.msg.flash{border-color:#30cfe4;box-shadow:0 0 18px #27bed125}.meta{display:flex;justify-content:space-between;font-size:9px}.meta span,.msg p{font-size:7px;color:#65869a}.audio{width:100%;height:29px;border:0;background:#12354a;display:flex;align-items:center;gap:8px;cursor:pointer}.play{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#27acc4;font-size:7px}.wave{flex:1;display:flex;align-items:center;gap:3px}.wave b{width:2px;height:5px;background:#48bbce;animation:wave .8s ease-in-out infinite alternate}.wave b:nth-child(2n){height:12px}.wave b:nth-child(3n){height:8px}@keyframes wave{to{transform:scaleY(.35)}}.audio em{font-size:7px;color:#7698aa;font-style:normal}.delivery{margin-top:7px;text-align:right;font-size:7px;color:#50d7a5}
-    #recentMessages{max-height:390px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}
+    .auditFilters{margin:0 9px 7px;padding:8px;border:1px solid #d6e5e1;background:#f7fbfa}.filterToggle{width:100%;height:29px;border:1px solid #acd4ca;border-radius:4px;background:#edf7f4;color:#17604f;font-size:9px;cursor:pointer}.filterGrid{display:none;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}.filterGrid.show{display:grid}.filterGrid label{display:block;color:#68847d;font-size:7px}.filterGrid select{width:100%;height:27px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:#264b43;font-size:8px}.filterSummary{margin-top:6px;color:#008f70;font-size:8px;text-align:right}
+    #recentMessages{max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}
     .foot{height:28px;padding:0 20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:#49677b;font-size:7px}
     .back{display:none;position:fixed;z-index:20;inset:0;background:rgba(2,9,17,.84);backdrop-filter:blur(5px);place-items:center}.back.show{display:grid}.modal{width:min(650px,calc(100vw - 30px));padding:19px;border:1px solid #2a7896;background:linear-gradient(145deg,#102e45,#081b2d);box-shadow:0 24px 80px #000a}.mh{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:1px solid var(--line)}.mh b{font-size:16px}.mh small{display:block;margin-top:5px;color:#7190a6;font-size:8px}.close{border:0;background:transparent;font-size:24px;cursor:pointer}.steps{height:53px;display:flex;align-items:center;justify-content:center;gap:7px;color:#7592a6;font-size:8px}.steps b{width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#1c8fb4;color:#fff}.steps i{width:35px;border-top:1px dashed #386980}
     .ticket{border:1px solid #2d6177;background:#091f30;padding:12px}.tickethead{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:10px;font-size:8px}.tickethead span{color:#67869a}.ticket ol{margin:11px 0 0;padding:0;list-style:none}.ticket li{padding:7px;margin-top:5px;background:#102c3e;font-size:9px}.ticket li em{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:9px;border-radius:50%;background:#1b6982;color:#8fe4f0;font-size:7px;font-style:normal}.target{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:9px;align-items:center;padding:12px 0;font-size:8px}.target span{color:#68869a}.target b{padding:8px;border:1px solid #24536a;background:#0a2234;font-weight:400}.actions{display:flex;justify-content:flex-end;gap:8px}.actions button{padding:10px 15px;border:1px solid #2b6076;background:#102c3e;cursor:pointer;font-size:9px}.actions .send{border:0;background:linear-gradient(100deg,#1679c7,#25bed1)}
@@ -1161,7 +1170,7 @@ html = dedent(
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
-        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div id="recentMessages"></div></aside>
+        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>全量调度指令</span><span style="color:#008f70;font-size:8px">支持组合筛选</span></div><div class="auditFilters"><button class="filterToggle" onclick="toggleFilters()">⌕ 筛选历史指令</button><div class="filterGrid" id="filterGrid"><label>下发方式<select id="methodFilter" onchange="applyFilters()"><option value="">全部方式</option><option value="province">省级下发</option><option value="city">市级自主下发</option></select></label><label>执行地市<select id="cityFilter" onchange="cityFilterChanged()"><option value="">全部地市</option></select></label><label>执行区县<select id="countyFilter" onchange="applyFilters()"><option value="">全部区县</option></select></label><label>时间范围<select id="timeFilter" onchange="applyFilters()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="statusFilter" onchange="applyFilters()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已转发</option><option>已执行</option></select></label><label>筛选操作<button class="filterToggle" style="margin-top:3px" onclick="resetFilters()">重置条件</button></label></div><div class="filterSummary" id="filterSummary"></div></div><div id="recentMessages"></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
@@ -1220,19 +1229,43 @@ html = dedent(
     function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
     function selectProvince(){focused=false;render()}
     function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
-    let speakingIndex=-1;
+    let speakingIndex=-1,filteredMessages=[...recentMessages];
+    function toggleFilters(){document.getElementById("filterGrid").classList.toggle("show")}
+    function fillCountyFilter(){
+      const city=document.getElementById("cityFilter").value,current=document.getElementById("countyFilter").value;
+      const names=city?(cities.find(c=>c.name===city)?.counties||[]):[...new Set(cities.flatMap(c=>c.counties))];
+      document.getElementById("countyFilter").innerHTML='<option value="">全部区县</option>'+names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("");
+      if(names.includes(current))document.getElementById("countyFilter").value=current
+    }
+    function cityFilterChanged(){fillCountyFilter();applyFilters()}
+    function beijingTodayStart(){
+      const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+      const value=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+      return Date.parse(`${value.year}-${value.month}-${value.day}T00:00:00+08:00`)
+    }
+    function applyFilters(){
+      const method=document.getElementById("methodFilter").value,city=document.getElementById("cityFilter").value,county=document.getElementById("countyFilter").value,timeRange=document.getElementById("timeFilter").value,status=document.getElementById("statusFilter").value;
+      const now=Date.now(),cutoff=timeRange==="today"?beijingTodayStart():timeRange==="7d"?now-7*86400000:timeRange==="30d"?now-30*86400000:0;
+      filteredMessages=recentMessages.filter(m=>(!method||m.method===method)&&(!city||m.city===city)&&(!county||m.county===county)&&(!status||m.status===status)&&(!cutoff||m.createdAt>=cutoff));
+      speakingIndex=-1;document.getElementById("filterSummary").textContent=`找到 ${filteredMessages.length} 条记录`;renderRecent()
+    }
+    function resetFilters(){["methodFilter","cityFilter","countyFilter","timeFilter","statusFilter"].forEach(id=>document.getElementById(id).value="");fillCountyFilter();applyFilters()}
+    function initFilters(){
+      document.getElementById("cityFilter").innerHTML='<option value="">全部地市</option>'+cities.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("");
+      fillCountyFilter();applyFilters()
+    }
     function renderRecent(){
       const box=document.getElementById("recentMessages");
-      if(!recentMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">今日暂无调度指令</div>';return}
-      box.innerHTML=recentMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.origin==="省级下发"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}</div></div>`).join("");
-      box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=recentMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
+      if(!filteredMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">没有符合筛选条件的调度指令</div>';return}
+      box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.origin==="省级下发"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}</div></div>`).join("");
+      box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=filteredMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
       box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
     }
     function toggleMessageSpeech(index){
       if(!("speechSynthesis" in window))return;
       if(speakingIndex===index){speechSynthesis.cancel();speakingIndex=-1;renderRecent();return}
       speechSynthesis.cancel();speakingIndex=index;renderRecent();
-      const u=new SpeechSynthesisUtterance(recentMessages[index].content);u.lang="zh-CN";u.rate=.88;
+      const u=new SpeechSynthesisUtterance(filteredMessages[index].content);u.lang="zh-CN";u.rate=.88;
       u.onend=u.onerror=()=>{if(speakingIndex===index){speakingIndex=-1;renderRecent()}};
       speechSynthesis.speak(u);
     }
@@ -1254,7 +1287,7 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);if(autoRefreshEnabled)setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);if(autoRefreshEnabled)setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();initFilters();raiseFonts();
     </script>
     </body></html>
     """
