@@ -27,11 +27,18 @@ st.markdown(
     [data-testid="stAppViewContainer"] {background:#eef5f3}
     [data-testid="stMain"] > div {padding:0!important;max-width:none!important}
     [data-testid="stExpander"] {background:#fff;border-color:#d6e5e1!important}
+    [data-testid="stExpander"] details {border-radius:0 0 10px 10px}
     .stButton>button[kind="primary"] {background:linear-gradient(105deg,#007f66,#00a779);border:0}
     .stTextInput input,.stTextArea textarea,[data-baseweb="select"]>div {
       background:#fff!important;border-color:#bddbd3!important;color:#193a33!important
     }
     iframe {display:block}
+    .workspace-brand {
+      margin:0;padding:18px 24px;background:linear-gradient(105deg,#006c58,#009b77);
+      color:#fff;border-radius:10px 0 0 0;box-shadow:0 5px 18px rgba(0,81,66,.16)
+    }
+    .workspace-brand b {font-size:22px;letter-spacing:1px}
+    .workspace-brand small {display:block;margin-top:5px;color:#ccebe3;letter-spacing:2px}
     </style>
     """,
     unsafe_allow_html=True,
@@ -400,9 +407,17 @@ if role == "harbin":
     render_harbin_workspace()
     st.stop()
 
-province_title, province_logout = st.columns([6, 1])
+province_title, province_logout = st.columns([7, 1], vertical_alignment="center")
 with province_title:
-    st.markdown("### 黑龙江省级调度账号 · 指令下发工作台")
+    st.markdown(
+        """
+        <div class="workspace-brand">
+          <b>龙江电网 · 虚拟配网调度中心</b>
+          <small>黑龙江省级调度账号　·　指令下发工作台</small>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 with province_logout:
     if st.button("退出账号", use_container_width=True):
         st.query_params.clear()
@@ -496,6 +511,19 @@ if network_city in province_targets:
         del st.query_params["network_county"]
     st.rerun()
 
+pending_network_selection = st.session_state.pop("pending_network_selection", None)
+if isinstance(pending_network_selection, dict):
+    pending_city = pending_network_selection.get("city")
+    pending_county = pending_network_selection.get("county")
+    if (
+        pending_city in province_targets
+        and pending_county in province_targets[pending_city]["counties"]
+    ):
+        st.session_state["province_target_city"] = pending_city
+        st.session_state[f"province_target_county_{pending_city}"] = pending_county
+        st.session_state["network_focus_city"] = pending_city
+        st.session_state["network_focus_county"] = pending_county
+
 with st.expander("新建调度指令", expanded=True):
     city_col, county_col = st.columns(2)
     with city_col:
@@ -523,21 +551,24 @@ with st.expander("新建调度指令", expanded=True):
     blade_no_1 = f"{switch_no}1"
     blade_no_2 = f"{switch_no}2"
 
-    operation_title = st.text_input(
-        "调度任务",
-        value=f"{line_name}由运行转检修",
-        key=f"operation_title_{target_city}_{target_county}",
-    )
-    operation_steps = st.text_area(
-        "操作票内容（可逐项修改）",
-        value=(
-            f"第一项，拉开{line_name} {switch_no} 开关。\n"
-            f"第二项，拉开{line_name} {blade_no_1} 刀闸。\n"
-            f"第三项，拉开{line_name} {blade_no_2} 刀闸。"
-        ),
-        height=120,
-        key=f"operation_steps_{target_city}_{target_county}",
-    )
+    task_col, steps_col = st.columns([1, 2])
+    with task_col:
+        operation_title = st.text_input(
+            "调度任务",
+            value=f"{line_name}由运行转检修",
+            key=f"operation_title_{target_city}_{target_county}",
+        )
+    with steps_col:
+        operation_steps = st.text_area(
+            "操作票内容（可逐项修改）",
+            value=(
+                f"第一项，拉开{line_name} {switch_no} 开关。\n"
+                f"第二项，拉开{line_name} {blade_no_1} 刀闸。\n"
+                f"第三项，拉开{line_name} {blade_no_2} 刀闸。"
+            ),
+            height=92,
+            key=f"operation_steps_{target_city}_{target_county}",
+        )
     st.caption(
         f"接收方：{target_city}调度中心　·　关联节点：{target_county}　·　"
         "操作票是调度指令的结构化正文，不再设置第二个重复入口"
@@ -602,7 +633,7 @@ html = dedent(
     :root{--bg:#07111f;--panel:#0b1f33;--line:rgba(84,167,204,.18);--cyan:#39d7ee;--blue:#2f7cf6;--text:#eaf8ff;--muted:#7892a9}
     *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;overflow:hidden}
     body:before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 52% 48%,rgba(0,125,196,.15),transparent 43%),linear-gradient(rgba(43,124,164,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(43,124,164,.045) 1px,transparent 1px);background-size:auto,30px 30px,30px 30px}
-    button{font:inherit;color:inherit}.app{height:930px;display:flex;flex-direction:column;position:relative}
+    button{font:inherit;color:inherit}.app{height:862px;display:flex;flex-direction:column;position:relative}
     .top{height:68px;padding:0 27px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:rgba(5,16,29,.93)}
     .brand{display:flex;align-items:center;gap:13px}.logo{width:38px;height:38px;display:grid;place-items:center;border-radius:7px 15px;background:linear-gradient(145deg,#148fd1,#2ad5d6);font-size:25px;box-shadow:0 0 22px #168cc866}.brand b{font-size:18px;letter-spacing:2px}.brand small{display:block;margin-top:4px;color:#56738d;font-size:8px;letter-spacing:2.4px}
     .online{font-size:11px;color:#8ea8bd}.dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#39e6a7;box-shadow:0 0 10px #39e6a7}.clock{margin-left:24px;font:13px Consolas;color:#bdd6e5}
@@ -672,7 +703,6 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <header class="top"><div class="brand"><div class="logo">⌁</div><div><b>龙江电网 · 虚拟配网调度中心</b><small>HEILONGJIANG VIRTUAL DISPATCH NETWORK</small></div></div><div class="online"><i class="dot"></i>全域智能体在线 <span class="clock" id="clock">14:26:08</span></div></header>
       <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
@@ -765,7 +795,7 @@ html = dedent(
 
 network_selection = network_component(
     html=html,
-    height=930,
+    height=862,
     key="province_network_topology",
     default=None,
 )
@@ -779,8 +809,8 @@ if isinstance(network_selection, dict):
             and selected_county in province_targets[selected_city]["counties"]
         ):
             st.session_state["processed_network_selection"] = selection_nonce
-            st.session_state["province_target_city"] = selected_city
-            st.session_state[f"province_target_county_{selected_city}"] = selected_county
-            st.session_state["network_focus_city"] = selected_city
-            st.session_state["network_focus_county"] = selected_county
+            st.session_state["pending_network_selection"] = {
+                "city": selected_city,
+                "county": selected_county,
+            }
             st.rerun()
