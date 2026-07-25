@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    html,body,#root,iframe{width:100%;height:100%;margin:0;border:0;display:block;overflow:hidden}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const send = (type, data = {}) => {
+      window.parent.postMessage({isStreamlitMessage:true,type,...data}, "*");
+    };
+    let frame;
+    window.addEventListener("message", event => {
+      if(event.data?.type === "streamlit:render"){
+        const args=event.data.args || {};
+        if(!frame){
+          frame=document.createElement("iframe");
+          frame.setAttribute("sandbox","allow-scripts allow-same-origin");
+          document.getElementById("root").appendChild(frame);
+        }
+        frame.style.height=(args.height || 930)+"px";
+        frame.srcdoc=args.html || "";
+        send("streamlit:setFrameHeight",{height:args.height || 930});
+      }
+      if(event.data?.type === "networkTarget"){
+        send("streamlit:setComponentValue",{value:event.data,dataType:"json"});
+      }
+    });
+    send("streamlit:componentReady",{apiVersion:1});
+  </script>
+</body>
+</html>

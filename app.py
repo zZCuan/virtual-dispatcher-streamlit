@@ -38,6 +38,10 @@ st.markdown(
 )
 
 DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
+NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
+network_component = components.declare_component(
+    "network_topology", path=str(NETWORK_COMPONENT_PATH)
+)
 
 
 def connect_db() -> sqlite3.Connection:
@@ -616,8 +620,8 @@ html = dedent(
     .sweep{position:absolute;width:52%;aspect-ratio:1;left:50%;top:50%;transform-origin:0 0;background:conic-gradient(from 10deg,transparent 0 315deg,rgba(38,184,211,.08) 345deg,transparent 360deg);animation:sweep 12s linear infinite}@keyframes sweep{to{transform:rotate(360deg)}}
     .line{position:absolute;height:1px;transform-origin:left center;background:linear-gradient(90deg,#24cde988,#24cde915);z-index:0}.line.hot{height:2px;background:linear-gradient(90deg,#b5f6ff,#23cde7);box-shadow:0 0 7px #28d9f0;animation:glow 1.3s ease-in-out infinite alternate}@keyframes glow{from{opacity:.45}to{opacity:1}}
     .province{position:absolute;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);width:125px;height:125px;border:1px solid #55e5f6;border-radius:50%;background:radial-gradient(circle at 35% 30%,#154d67,#071a2c 67%);box-shadow:0 0 22px #29d4e052,inset 0 0 25px #36d9e51c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}.picon{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(145deg,#38d3df,#167bc6);box-shadow:0 0 18px #2acbd6aa;font-size:12px;font-weight:900}.province b{font-size:10px}.province small{font-size:7px;color:#72a0b5}.ring{position:absolute;inset:-10px;border:1px solid #37bdd555;border-radius:50%;animation:pulse 2s ease-out infinite}@keyframes pulse{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.18);opacity:0}}
-    .cnode{position:absolute;z-index:4;transform:translate(-50%,-50%);width:53px;height:53px;border:1px solid #2b6c8a;border-radius:50%;background:#0c2639;display:grid;place-items:center;padding:5px;cursor:pointer;text-decoration:none;color:inherit}.cnode span{width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#133e56;color:#8fcfe3;font-size:10px}.cnode small{font-size:7px;color:#688da2}.cnode.active{border-color:var(--cyan);box-shadow:0 0 18px #29cce766;transform:translate(-50%,-50%) scale(1.12)}.cnode.active span{color:white;background:linear-gradient(145deg,#258fba,#21c9d4)}
-    .knode{position:absolute;z-index:3;transform:translate(-50%,-50%);width:17px;height:17px;border:0;background:transparent;padding:0;cursor:pointer;text-decoration:none;color:inherit}.knode>span{display:block;width:6px;height:6px;margin:auto;border:1px solid #466c80;border-radius:50%;background:#102b3b}.knode small{position:absolute;left:12px;top:-2px;width:max-content;font-size:7px;color:#72a4b9}.knode.group>span{border-color:#32cfe3;background:#24a4bf;box-shadow:0 0 6px #2ed9eb}.knode.selected>span{width:9px;height:9px;background:#fff;border:2px solid #28d7e8;box-shadow:0 0 11px #fff}.knode.selected small{color:#fff;font-weight:700}
+    .cnode{position:absolute;z-index:4;transform:translate(-50%,-50%);width:53px;height:53px;border:1px solid #2b6c8a;border-radius:50%;background:#0c2639;display:grid;place-items:center;padding:5px;cursor:pointer;color:inherit}.cnode span{width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#133e56;color:#8fcfe3;font-size:10px}.cnode small{font-size:7px;color:#688da2}.cnode.active{border-color:var(--cyan);box-shadow:0 0 18px #29cce766;transform:translate(-50%,-50%) scale(1.12)}.cnode.active span{color:white;background:linear-gradient(145deg,#258fba,#21c9d4)}
+    .knode{position:absolute;z-index:3;transform:translate(-50%,-50%);width:17px;height:17px;border:0;background:transparent;padding:0;cursor:pointer;color:inherit}.knode>span{display:block;width:6px;height:6px;margin:auto;border:1px solid #466c80;border-radius:50%;background:#102b3b}.knode small{position:absolute;left:12px;top:-2px;width:max-content;font-size:7px;color:#72a4b9}.knode.group>span{border-color:#32cfe3;background:#24a4bf;box-shadow:0 0 6px #2ed9eb}.knode.selected>span{width:9px;height:9px;background:#fff;border:2px solid #28d7e8;box-shadow:0 0 11px #fff}.knode.selected small{color:#fff;font-weight:700}
     .olabel{position:absolute;padding:3px 7px;border:1px solid #24546b;border-radius:10px;background:#071827dd;color:#577b91;font-size:7px;letter-spacing:1px}.citylabel{left:50%;top:16%;transform:translateX(-50%)}.countylabel{left:50%;bottom:0;transform:translateX(-50%)}
     .route{margin:10px;padding:13px;border:1px solid #21506a;background:#0b2438aa}.rnode{display:flex;align-items:center;gap:10px}.mini{width:30px;height:30px;display:grid;place-items:center;border:1px solid #319cc0;border-radius:50%;background:#143c53;font-size:9px;font-weight:700}.rnode small{display:block;font-size:7px;color:#5d7b90}.rnode b{font-size:10px}.flow{height:32px;margin-left:15px;border-left:1px dashed #28bed4;position:relative}.flow:after{content:"";position:absolute;width:4px;height:4px;border-radius:50%;background:#fff;left:-2.5px;animation:down 1.4s linear infinite;box-shadow:0 0 6px var(--cyan)}@keyframes down{from{top:1px}to{top:28px}}.flow em{position:absolute;left:9px;top:10px;font-size:7px;color:#3d7288;font-style:normal}
     .sect{padding:6px 11px;display:flex;justify-content:space-between;font-size:10px;font-weight:700}.msg{margin:7px 9px;padding:10px;border:1px solid #1e4a62;background:#0d2638a8}.msg.flash{border-color:#30cfe4;box-shadow:0 0 18px #27bed125}.meta{display:flex;justify-content:space-between;font-size:9px}.meta span,.msg p{font-size:7px;color:#65869a}.audio{width:100%;height:29px;border:0;background:#12354a;display:flex;align-items:center;gap:8px;cursor:pointer}.play{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#27acc4;font-size:7px}.wave{flex:1;display:flex;align-items:center;gap:3px}.wave b{width:2px;height:5px;background:#48bbce;animation:wave .8s ease-in-out infinite alternate}.wave b:nth-child(2n){height:12px}.wave b:nth-child(3n){height:8px}@keyframes wave{to{transform:scaleY(.35)}}.audio em{font-size:7px;color:#7698aa;font-style:normal}.delivery{margin-top:7px;text-align:right;font-size:7px;color:#50d7a5}
@@ -692,8 +696,7 @@ html = dedent(
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
-    const appUrl="https://virtual-dispatcher-app.streamlit.app/";
-    function targetUrl(city,county){return `${appUrl}?role=province&network_city=${encodeURIComponent(city)}&network_county=${encodeURIComponent(county)}`}
+    function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
@@ -709,7 +712,7 @@ html = dedent(
         const base=polar(i,cities.length,focused?43:28);
         const p=focused?(i===active?center:{x:54+(base.x-50),y:50+(base.y-50)}):base;
         if(!focused||i===active){const sx=focused?16:50,sy=50,dx=p.x-sx,dy=p.y-sy;scene.appendChild(line(sx,sy,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),i===active,focused?"dynamic superiorLine":"dynamic"))}
-        const n=document.createElement("a");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.href=targetUrl(c.name,c.counties[0]);n.target="_top";scene.appendChild(n)
+        const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i,true);scene.appendChild(n)
       });
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
       cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
@@ -721,12 +724,12 @@ html = dedent(
           const dx=p.x-center.x,dy=p.y-center.y;scene.appendChild(line(center.x,center.y,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),name===selected,"dynamic subordinateLine"));
         }else p=polar(k,total,46);
         k++;
-        const n=document.createElement("a");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.href=targetUrl(cities[ci].name,name);n.target="_top";scene.appendChild(n)
+        const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render();syncParentTarget(cities[ci].name,name)};scene.appendChild(n)
       }));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度中心</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度中心</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
       document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
     }
-    function selectCity(i){active=i;selected=cities[i].counties[0];focused=true;render()}
+    function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
     function selectProvince(){focused=false;render()}
     function syncTicketToTarget(){
       const t=ticketTemplates[active];
@@ -760,4 +763,24 @@ html = dedent(
     "__NETWORK_FOCUSED__", "true" if network_is_focused else "false"
 )
 
-components.html(html, height=930, scrolling=False)
+network_selection = network_component(
+    html=html,
+    height=930,
+    key="province_network_topology",
+    default=None,
+)
+if isinstance(network_selection, dict):
+    selection_nonce = network_selection.get("nonce")
+    if selection_nonce != st.session_state.get("processed_network_selection"):
+        selected_city = network_selection.get("city")
+        selected_county = network_selection.get("county")
+        if (
+            selected_city in province_targets
+            and selected_county in province_targets[selected_city]["counties"]
+        ):
+            st.session_state["processed_network_selection"] = selection_nonce
+            st.session_state["province_target_city"] = selected_city
+            st.session_state[f"province_target_county_{selected_city}"] = selected_county
+            st.session_state["network_focus_city"] = selected_city
+            st.session_state["network_focus_county"] = selected_county
+            st.rerun()
