@@ -335,37 +335,56 @@ with province_logout:
 
 province_targets = {
     "哈尔滨市": {
-        "line": "哈西甲乙线", "switch": "101", "blade1": "1011", "blade2": "1012",
+        "base": 101,
         "counties": ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"],
     },
     "齐齐哈尔市": {
-        "line": "齐南甲线", "switch": "301", "blade1": "3011", "blade2": "3012",
+        "base": 301,
         "counties": ["龙沙区", "建华区", "铁锋区", "富拉尔基区", "昂昂溪区", "梅里斯区"],
     },
     "牡丹江市": {
-        "line": "牡东乙线", "switch": "401", "blade1": "4011", "blade2": "4012",
+        "base": 401,
         "counties": ["东安区", "西安区", "爱民区", "阳明区", "海林市", "宁安市"],
     },
     "佳木斯市": {
-        "line": "佳东甲线", "switch": "501", "blade1": "5011", "blade2": "5012",
+        "base": 501,
         "counties": ["向阳区", "前进区", "东风区", "郊区", "桦南县", "汤原县"],
     },
     "大庆市": {
-        "line": "庆北乙线", "switch": "601", "blade1": "6011", "blade2": "6012",
+        "base": 601,
         "counties": ["萨尔图区", "龙凤区", "让胡路区", "红岗区", "大同区", "肇州县"],
     },
     "鸡西市": {
-        "line": "鸡冠甲线", "switch": "701", "blade1": "7011", "blade2": "7012",
+        "base": 701,
         "counties": ["鸡冠区", "恒山区", "滴道区", "梨树区", "城子河区", "麻山区"],
     },
     "双鸭山市": {
-        "line": "双宝乙线", "switch": "801", "blade1": "8011", "blade2": "8012",
+        "base": 801,
         "counties": ["尖山区", "岭东区", "四方台区", "宝山区", "集贤县", "友谊县"],
     },
     "伊春市": {
-        "line": "伊美甲线", "switch": "901", "blade1": "9011", "blade2": "9012",
+        "base": 901,
         "counties": ["伊美区", "乌翠区", "友好区", "嘉荫县", "汤旺县", "丰林县"],
     },
+}
+
+county_lines = {
+    "南岗区": "哈南甲线", "道里区": "哈里乙线", "道外区": "哈东甲线", "香坊区": "哈香乙线",
+    "平房区": "哈平甲线", "松北区": "哈松乙线", "呼兰区": "哈呼甲线", "阿城区": "哈阿乙线",
+    "龙沙区": "齐龙甲线", "建华区": "齐建乙线", "铁锋区": "齐铁甲线",
+    "富拉尔基区": "齐富乙线", "昂昂溪区": "齐昂甲线", "梅里斯区": "齐梅乙线",
+    "东安区": "牡东甲线", "西安区": "牡西乙线", "爱民区": "牡爱甲线",
+    "阳明区": "牡阳乙线", "海林市": "牡海甲线", "宁安市": "牡宁乙线",
+    "向阳区": "佳向甲线", "前进区": "佳前乙线", "东风区": "佳东甲线",
+    "郊区": "佳郊乙线", "桦南县": "佳桦甲线", "汤原县": "佳汤乙线",
+    "萨尔图区": "庆萨甲线", "龙凤区": "庆龙乙线", "让胡路区": "庆让甲线",
+    "红岗区": "庆红乙线", "大同区": "庆同甲线", "肇州县": "庆肇乙线",
+    "鸡冠区": "鸡冠甲线", "恒山区": "鸡恒乙线", "滴道区": "鸡滴甲线",
+    "梨树区": "鸡梨乙线", "城子河区": "鸡城甲线", "麻山区": "鸡麻乙线",
+    "尖山区": "双尖甲线", "岭东区": "双岭乙线", "四方台区": "双四甲线",
+    "宝山区": "双宝乙线", "集贤县": "双集甲线", "友谊县": "双友乙线",
+    "伊美区": "伊美甲线", "乌翠区": "伊乌乙线", "友好区": "伊友甲线",
+    "嘉荫县": "伊嘉乙线", "汤旺县": "伊汤甲线", "丰林县": "伊丰乙线",
 }
 
 with st.expander("新建调度指令", expanded=True):
@@ -379,21 +398,26 @@ with st.expander("新建调度指令", expanded=True):
             template["counties"],
             key=f"province_target_county_{target_city}",
         )
+    county_index = template["counties"].index(target_county)
+    line_name = county_lines[target_county]
+    switch_no = template["base"] + county_index * 10
+    blade_no_1 = f"{switch_no}1"
+    blade_no_2 = f"{switch_no}2"
 
     operation_title = st.text_input(
         "调度任务",
-        value=f"{template['line']}由运行转检修",
-        key=f"operation_title_{target_city}",
+        value=f"{line_name}由运行转检修",
+        key=f"operation_title_{target_city}_{target_county}",
     )
     operation_steps = st.text_area(
         "操作票内容（可逐项修改）",
         value=(
-            f"第一项，拉开{template['line']} {template['switch']} 开关。\n"
-            f"第二项，拉开{template['line']} {template['blade1']} 刀闸。\n"
-            f"第三项，拉开{template['line']} {template['blade2']} 刀闸。"
+            f"第一项，拉开{line_name} {switch_no} 开关。\n"
+            f"第二项，拉开{line_name} {blade_no_1} 刀闸。\n"
+            f"第三项，拉开{line_name} {blade_no_2} 刀闸。"
         ),
         height=120,
-        key=f"operation_steps_{target_city}",
+        key=f"operation_steps_{target_city}_{target_county}",
     )
     st.caption(
         f"接收方：{target_city}调度中心　·　关联节点：{target_county}　·　"
