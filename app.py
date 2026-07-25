@@ -85,7 +85,8 @@ def connect_db() -> sqlite3.Connection:
             status TEXT NOT NULL DEFAULT '已送达',
             acknowledged_at REAL,
             executed_at REAL,
-            executed_by TEXT
+            executed_by TEXT,
+            request_key TEXT
         )
         """
     )
@@ -96,12 +97,31 @@ def connect_db() -> sqlite3.Connection:
         connection.execute("ALTER TABLE dispatch_messages ADD COLUMN executed_at REAL")
     if "executed_by" not in existing_columns:
         connection.execute("ALTER TABLE dispatch_messages ADD COLUMN executed_by TEXT")
+    if "request_key" not in existing_columns:
+        connection.execute("ALTER TABLE dispatch_messages ADD COLUMN request_key TEXT")
     connection.execute(
         """
         UPDATE dispatch_messages
         SET executed_at=COALESCE(executed_at, acknowledged_at),
             executed_by=COALESCE(executed_by, '历史演示账号')
         WHERE status='已执行' AND executed_at IS NULL
+        """
+    )
+    connection.execute(
+        """
+        DELETE FROM dispatch_messages
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM dispatch_messages
+            GROUP BY ticket_no, sender, receiver
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_request_key
+        ON dispatch_messages(request_key)
+        WHERE request_key IS NOT NULL
         """
     )
     connection.execute(
@@ -173,6 +193,7 @@ def send_message(
     steps: str,
     sender: str = "黑龙江省调度中心",
     receiver: str = "哈尔滨市调度中心",
+    request_key: str | None = None,
 ) -> str:
     ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
     content = (
@@ -181,11 +202,18 @@ def send_message(
         "操作完成后立即回令。"
     )
     with connect_db() as connection:
+        if request_key:
+            existing = connection.execute(
+                "SELECT ticket_no FROM dispatch_messages WHERE request_key=? LIMIT 1",
+                (request_key,),
+            ).fetchone()
+            if existing:
+                return existing[0]
         connection.execute(
             """
             INSERT INTO dispatch_messages
-            (id, created_at, sender, receiver, title, ticket_no, target_county, content, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, created_at, sender, receiver, title, ticket_no, target_county, content, status, request_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uuid.uuid4().hex,
@@ -197,6 +225,7 @@ def send_message(
                 target_county,
                 content,
                 "已送达",
+                request_key,
             ),
         )
         connection.commit()
@@ -565,6 +594,7 @@ def render_harbin_dashboard() -> None:
                     result["county"], result.get("title") or "区域配网运行方式调整",
                     result.get("steps") or "核对线路状态并执行操作。",
                     sender="哈尔滨市调度中心", receiver=f'{result["county"]}调度智能体',
+                    request_key=f"downstream:{nonce}",
                 )
                 st.rerun()
 
