@@ -524,16 +524,30 @@ if isinstance(pending_network_selection, dict):
         st.session_state["network_focus_city"] = pending_city
         st.session_state["network_focus_county"] = pending_county
 
-with st.expander("新建调度指令", expanded=True):
+@st.dialog("新建操作票", width="large")
+def render_operation_ticket_dialog() -> None:
+    default_city = st.session_state.get("network_focus_city", "哈尔滨市")
     city_col, county_col = st.columns(2)
     with city_col:
-        target_city = st.selectbox("接收地市", list(province_targets), key="province_target_city")
+        target_city = st.selectbox(
+            "发布地市",
+            list(province_targets),
+            index=list(province_targets).index(default_city),
+            key="province_target_city",
+        )
     template = province_targets[target_city]
+    default_county = st.session_state.get(
+        "network_focus_county", template["counties"][0]
+    )
+    if default_county not in template["counties"]:
+        default_county = template["counties"][0]
+    county_key = f"province_target_county_{target_city}"
     with county_col:
         target_county = st.selectbox(
-            "关联区县节点",
+            "发布区县节点",
             template["counties"],
-            key=f"province_target_county_{target_city}",
+            index=template["counties"].index(default_county),
+            key=county_key,
         )
     county_index = template["counties"].index(target_county)
     city_prefix = {
@@ -548,39 +562,47 @@ with st.expander("新建调度指令", expanded=True):
         f"{city_prefix}{county_short}{'甲线' if county_index % 2 == 0 else '乙线'}",
     )
     switch_no = template["base"] + county_index * 10
-    blade_no_1 = f"{switch_no}1"
-    blade_no_2 = f"{switch_no}2"
-
-    task_col, steps_col = st.columns([1, 2])
-    with task_col:
-        operation_title = st.text_input(
-            "调度任务",
-            value=f"{line_name}由运行转检修",
-            key=f"operation_title_{target_city}_{target_county}",
-        )
-    with steps_col:
-        operation_steps = st.text_area(
-            "操作票内容（可逐项修改）",
-            value=(
-                f"第一项，拉开{line_name} {switch_no} 开关。\n"
-                f"第二项，拉开{line_name} {blade_no_1} 刀闸。\n"
-                f"第三项，拉开{line_name} {blade_no_2} 刀闸。"
-            ),
-            height=92,
-            key=f"operation_steps_{target_city}_{target_county}",
-        )
-    st.caption(
-        f"接收方：{target_city}调度中心　·　关联节点：{target_county}　·　"
-        "操作票是调度指令的结构化正文，不再设置第二个重复入口"
+    operation_title = st.text_input(
+        "操作任务",
+        value=f"{line_name}由运行转检修",
+        key=f"operation_title_{target_city}_{target_county}",
     )
-    if st.button("确认并下发调度指令", type="primary", use_container_width=True):
+    operation_steps = st.text_area(
+        "操作票内容（可逐项修改）",
+        value=(
+            f"第一项，拉开{line_name} {switch_no} 开关。\n"
+            f"第二项，拉开{line_name} {switch_no}1 刀闸。\n"
+            f"第三项，拉开{line_name} {switch_no}2 刀闸。"
+        ),
+        height=130,
+        key=f"operation_steps_{target_city}_{target_county}",
+    )
+    st.caption(
+        f"当前网络目标：{target_city} → {target_county}　·　"
+        "发布地区已根据网络选中节点自动填充"
+    )
+    if st.button("确认并下发操作票", type="primary", use_container_width=True):
         ticket = send_message(
             target_county,
             operation_title,
             operation_steps,
             receiver=f"{target_city}调度中心",
         )
-        st.success(f"调度指令 {ticket} 已下发至{target_city}调度中心，等待对方签收。")
+        st.success(f"操作票 {ticket} 已下发至{target_city}调度中心。")
+
+
+selected_target_city = st.session_state.get("network_focus_city", "哈尔滨市")
+selected_target_county = st.session_state.get(
+    "network_focus_county", province_targets[selected_target_city]["counties"][0]
+)
+target_info, ticket_action = st.columns([6, 1], vertical_alignment="center")
+with target_info:
+    st.caption(
+        f"当前网络目标　{selected_target_city}调度中心 → {selected_target_county}智能体"
+    )
+with ticket_action:
+    if st.button("＋ 新建操作票", type="primary", use_container_width=True):
+        render_operation_ticket_dialog()
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
