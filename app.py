@@ -478,6 +478,20 @@ county_lines = {
     "嘉荫县": "伊嘉乙线", "汤旺县": "伊汤甲线", "丰林县": "伊丰乙线",
 }
 
+network_city = st.query_params.get("network_city")
+network_county = st.query_params.get("network_county")
+if network_city in province_targets:
+    valid_counties = province_targets[network_city]["counties"]
+    linked_county = network_county if network_county in valid_counties else valid_counties[0]
+    st.session_state["province_target_city"] = network_city
+    st.session_state[f"province_target_county_{network_city}"] = linked_county
+    st.session_state["network_focus_city"] = network_city
+    st.session_state["network_focus_county"] = linked_county
+    del st.query_params["network_city"]
+    if "network_county" in st.query_params:
+        del st.query_params["network_county"]
+    st.rerun()
+
 with st.expander("新建调度指令", expanded=True):
     city_col, county_col = st.columns(2)
     with city_col:
@@ -563,6 +577,15 @@ CITIES = [
 ]
 
 today_command_count, today_delivery_text = load_today_dispatch_stats()
+focused_city_name = st.session_state.get("network_focus_city")
+focused_city_index = next(
+    (index for index, city in enumerate(CITIES) if city["name"] == focused_city_name),
+    0,
+)
+focused_county_name = st.session_state.get(
+    "network_focus_county", CITIES[focused_city_index]["counties"][0]
+)
+network_is_focused = focused_city_name is not None
 
 html = dedent(
     r"""
@@ -668,7 +691,12 @@ html = dedent(
       {line:"双宝乙线",switchNo:"801",blade1:"8011",blade2:"8012"},
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
-    let active=0,selected=cities[0].counties[0],focused=false;
+    let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
+    const appUrl="https://virtual-dispatcher-app.streamlit.app/";
+    function syncParentTarget(city,county){
+      const url=`${appUrl}?role=province&network_city=${encodeURIComponent(city)}&network_county=${encodeURIComponent(county)}`;
+      window.top.location.href=url;
+    }
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
@@ -684,7 +712,7 @@ html = dedent(
         const base=polar(i,cities.length,focused?43:28);
         const p=focused?(i===active?center:{x:54+(base.x-50),y:50+(base.y-50)}):base;
         if(!focused||i===active){const sx=focused?16:50,sy=50,dx=p.x-sx,dy=p.y-sy;scene.appendChild(line(sx,sy,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),i===active,focused?"dynamic superiorLine":"dynamic"))}
-        const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
+        const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i,true);scene.appendChild(n)
       });
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
       cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
@@ -696,12 +724,12 @@ html = dedent(
           const dx=p.x-center.x,dy=p.y-center.y;scene.appendChild(line(center.x,center.y,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),name===selected,"dynamic subordinateLine"));
         }else p=polar(k,total,46);
         k++;
-        const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render()};scene.appendChild(n)
+        const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render();syncParentTarget(cities[ci].name,name)};scene.appendChild(n)
       }));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度中心</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度中心</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
       document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
     }
-    function selectCity(i){active=i;selected=cities[i].counties[0];focused=true;render()}
+    function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
     function selectProvince(){focused=false;render()}
     function syncTicketToTarget(){
       const t=ticketTemplates[active];
@@ -727,6 +755,12 @@ html = dedent(
     """
 ).replace("__CITIES__", json.dumps(CITIES, ensure_ascii=False)).replace(
     "__TODAY_COUNT__", str(today_command_count)
-).replace("__TODAY_STATUS__", today_delivery_text)
+).replace("__TODAY_STATUS__", today_delivery_text).replace(
+    "__ACTIVE_INDEX__", str(focused_city_index)
+).replace(
+    "__SELECTED_COUNTY__", json.dumps(focused_county_name, ensure_ascii=False)
+).replace(
+    "__NETWORK_FOCUSED__", "true" if network_is_focused else "false"
+)
 
 components.html(html, height=930, scrolling=False)
