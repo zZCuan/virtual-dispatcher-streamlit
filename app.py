@@ -6,8 +6,10 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import datetime, time as datetime_time
 from pathlib import Path
 from textwrap import dedent
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -52,6 +54,7 @@ st.markdown(
 )
 
 DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
     "network_topology", path=str(NETWORK_COMPONENT_PATH)
@@ -118,6 +121,16 @@ def load_online_agents(max_age_seconds: int = 300) -> set[str]:
     return {row[0] for row in rows}
 
 
+def beijing_datetime(timestamp: float | None = None) -> datetime:
+    if timestamp is None:
+        return datetime.now(BEIJING_TZ)
+    return datetime.fromtimestamp(timestamp, BEIJING_TZ)
+
+
+def format_beijing_time(timestamp: float, pattern: str = "%m-%d %H:%M:%S") -> str:
+    return beijing_datetime(timestamp).strftime(pattern)
+
+
 def send_message(
     target_county: str,
     title: str,
@@ -125,7 +138,7 @@ def send_message(
     sender: str = "黑龙江省调度中心",
     receiver: str = "哈尔滨市调度中心",
 ) -> str:
-    ticket_no = f"HLJ-{time.strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
+    ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
     content = (
         f"{receiver}调度员，请执行以下操作票任务。{title}。"
         f"{steps.replace(chr(10), '；')}。"
@@ -223,10 +236,8 @@ def load_messages_for(receiver: str) -> list[sqlite3.Row]:
 
 def load_today_dispatch_stats() -> tuple[int, str]:
     """Return today's real province-originated instruction count and delivery summary."""
-    now = time.localtime()
-    day_start = time.mktime(
-        (now.tm_year, now.tm_mon, now.tm_mday, 0, 0, 0, 0, 0, -1)
-    )
+    now = beijing_datetime()
+    day_start = datetime.combine(now.date(), datetime_time.min, BEIJING_TZ).timestamp()
     with connect_db() as connection:
         total, delivered = connection.execute(
             """
@@ -378,7 +389,7 @@ def render_harbin_workspace() -> None:
             st.info("正在监听省级调度中心，暂无待接收指令。")
         for message in messages:
             is_new = message["status"] == "已送达"
-            created = time.strftime("%m-%d %H:%M:%S", time.localtime(message["created_at"]))
+            created = format_beijing_time(message["created_at"])
             border = "#00a779" if is_new else "#cfe3de"
             with st.container(border=True):
                 st.markdown(
@@ -419,7 +430,7 @@ def render_harbin_dashboard() -> None:
             "id": row["id"], "title": row["title"], "sender": row["sender"],
             "county": row["target_county"], "ticket": row["ticket_no"],
             "content": row["content"], "status": row["status"],
-            "time": time.strftime("%m-%d %H:%M:%S", time.localtime(row["created_at"])),
+            "time": format_beijing_time(row["created_at"]),
         }
         for row in rows
     ]
@@ -799,7 +810,7 @@ recent_dispatches = [
     {
         "title": row["title"],
         "route": f'{row["sender"]} → {row["receiver"]}',
-        "time": time.strftime("%H:%M", time.localtime(row["created_at"])),
+        "time": format_beijing_time(row["created_at"], "%H:%M"),
         "content": row["content"],
         "status": row["status"],
     }
@@ -996,7 +1007,7 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
     </script>
     </body></html>
     """
