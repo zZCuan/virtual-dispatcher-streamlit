@@ -34,11 +34,18 @@ st.markdown(
     }
     iframe {display:block}
     .workspace-brand {
-      margin:0;padding:18px 24px;background:linear-gradient(105deg,#006c58,#009b77);
-      color:#fff;border-radius:10px 0 0 0;box-shadow:0 5px 18px rgba(0,81,66,.16)
+      position:relative;margin:0;padding:18px 24px;background:linear-gradient(105deg,#006c58 0%,#008c70 58%,#169b79 100%);
+      color:#fff;border-radius:10px 10px 0 0;box-shadow:0 5px 18px rgba(0,81,66,.16)
     }
     .workspace-brand b {font-size:22px;letter-spacing:1px}
     .workspace-brand small {display:block;margin-top:5px;color:#ccebe3;letter-spacing:2px}
+    .workspace-logout {
+      position:absolute;right:22px;top:50%;transform:translateY(-50%);
+      padding:9px 18px;border:1px solid rgba(255,255,255,.55);border-radius:7px;
+      background:rgba(255,255,255,.1);color:#fff!important;text-decoration:none!important;
+      font-size:13px;transition:.2s ease
+    }
+    .workspace-logout:hover {background:#fff;color:#00745e!important;box-shadow:0 5px 15px rgba(0,71,57,.18)}
     </style>
     """,
     unsafe_allow_html=True,
@@ -407,21 +414,16 @@ if role == "harbin":
     render_harbin_workspace()
     st.stop()
 
-province_title, province_logout = st.columns([7, 1], vertical_alignment="center")
-with province_title:
-    st.markdown(
-        """
-        <div class="workspace-brand">
-          <b>龙江电网 · 虚拟配网调度中心</b>
-          <small>黑龙江省级调度账号　·　指令下发工作台</small>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with province_logout:
-    if st.button("退出账号", use_container_width=True):
-        st.query_params.clear()
-        st.rerun()
+st.markdown(
+    """
+    <div class="workspace-brand">
+      <b>龙江电网 · 虚拟配网调度中心</b>
+      <small>黑龙江省级调度账号　·　指令下发工作台</small>
+      <a class="workspace-logout" href="/" target="_self">退出账号</a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 province_targets = {
     "哈尔滨市": {
@@ -681,7 +683,7 @@ html = dedent(
     .brand b,.online,.clock{color:#fff}.brand small{color:#ccebe3}.logo{background:#fff;color:#00856b;box-shadow:none}
     .bar{background:#fff;border-bottom:1px solid #d6e5e1}.title span{color:#008d70}.title b{color:#173f36}
     .stat{border-left-color:#d9e8e4}.stat b{color:#006f5a}.stat span{color:#708a84}.stat em{color:#008f70}
-    .new{background:linear-gradient(105deg,#007f66,#00a779);box-shadow:0 7px 18px rgba(0,127,102,.2);font-weight:700}
+    .new{min-width:142px;height:40px;padding:0 18px;border:1px solid #00745e;border-radius:8px;background:linear-gradient(105deg,#00745e,#00a779);color:#fff;font-size:11px;font-weight:700;letter-spacing:.5px;box-shadow:0 5px 14px rgba(0,127,102,.18);transition:transform .2s ease,box-shadow .2s ease}.new:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,127,102,.25)}.new:active{transform:translateY(0)}
     .panel,.network{background:#fff;border-color:#d6e5e1;box-shadow:0 4px 14px rgba(28,74,64,.06)}
     .ph{background:#f7fbfa;border-bottom-color:#d6e5e1;color:#21493f}.ph small,.secure{color:#008f70!important}
     .cityrow{color:#264b43}.cityrow:hover{background:#edf8f5}.cityrow.active{background:#e4f5f0;border-color:#9dd8c8;box-shadow:inset 4px 0 #008f70}
