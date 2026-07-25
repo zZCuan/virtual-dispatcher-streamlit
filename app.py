@@ -24,8 +24,13 @@ st.markdown(
     """
     <style>
     #MainMenu, header, footer, [data-testid="stToolbar"] {display:none!important}
-    [data-testid="stAppViewContainer"] {background:#07111f}
+    [data-testid="stAppViewContainer"] {background:#eef5f3}
     [data-testid="stMain"] > div {padding:0!important;max-width:none!important}
+    [data-testid="stExpander"] {background:#fff;border-color:#d6e5e1!important}
+    .stButton>button[kind="primary"] {background:linear-gradient(105deg,#007f66,#00a779);border:0}
+    .stTextInput input,.stTextArea textarea,[data-baseweb="select"]>div {
+      background:#fff!important;border-color:#bddbd3!important;color:#193a33!important
+    }
     iframe {display:block}
     </style>
     """,
@@ -351,33 +356,6 @@ with st.expander("新建操作票并下发至哈尔滨市", expanded=True):
         ticket = send_message(target_county, operation_title, operation_steps)
         st.success(f"操作票 {ticket} 已下发至哈尔滨市调度中心，等待对方签收。")
 
-with st.expander("最近调度指令（点击展开）", expanded=False):
-    recent_messages = load_messages()
-    province_messages = [
-        item for item in recent_messages if item["sender"] == "黑龙江省调度中心"
-    ]
-    if not province_messages:
-        st.caption("暂无已下发指令。")
-    for item in province_messages:
-        created = time.strftime("%m-%d %H:%M:%S", time.localtime(item["created_at"]))
-        with st.expander(f"{item['title']}　→ 哈尔滨市调　{created}　[{item['status']}]"):
-            st.write(f"**操作票号：** {item['ticket_no']}")
-            st.write(f"**目标区县：** {item['target_county']}")
-            st.write(item["content"])
-            if st.button("播放该指令语音", key=f"province-play-{item['id']}"):
-                voice_text = json.dumps(item["content"], ensure_ascii=False)
-                components.html(
-                    f"""
-                    <script>
-                    const u = new SpeechSynthesisUtterance({voice_text});
-                    u.lang = "zh-CN"; u.rate = 0.88;
-                    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
-                    </script>
-                    <div style="font:13px sans-serif;color:#48dba7">正在播放调度语音…</div>
-                    """,
-                    height=30,
-                )
-
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
      "counties": ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"]},
@@ -434,6 +412,36 @@ html = dedent(
     .foot{height:28px;padding:0 20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:#49677b;font-size:7px}
     .back{display:none;position:fixed;z-index:20;inset:0;background:rgba(2,9,17,.84);backdrop-filter:blur(5px);place-items:center}.back.show{display:grid}.modal{width:min(650px,calc(100vw - 30px));padding:19px;border:1px solid #2a7896;background:linear-gradient(145deg,#102e45,#081b2d);box-shadow:0 24px 80px #000a}.mh{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:1px solid var(--line)}.mh b{font-size:16px}.mh small{display:block;margin-top:5px;color:#7190a6;font-size:8px}.close{border:0;background:transparent;font-size:24px;cursor:pointer}.steps{height:53px;display:flex;align-items:center;justify-content:center;gap:7px;color:#7592a6;font-size:8px}.steps b{width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#1c8fb4;color:#fff}.steps i{width:35px;border-top:1px dashed #386980}
     .ticket{border:1px solid #2d6177;background:#091f30;padding:12px}.tickethead{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:10px;font-size:8px}.tickethead span{color:#67869a}.ticket ol{margin:11px 0 0;padding:0;list-style:none}.ticket li{padding:7px;margin-top:5px;background:#102c3e;font-size:9px}.ticket li em{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:9px;border-radius:50%;background:#1b6982;color:#8fe4f0;font-size:7px;font-style:normal}.target{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:9px;align-items:center;padding:12px 0;font-size:8px}.target span{color:#68869a}.target b{padding:8px;border:1px solid #24536a;background:#0a2234;font-weight:400}.actions{display:flex;justify-content:flex-end;gap:8px}.actions button{padding:10px 15px;border:1px solid #2b6076;background:#102c3e;cursor:pointer;font-size:9px}.actions .send{border:0;background:linear-gradient(100deg,#1679c7,#25bed1)}
+    /* 国家电网业务大屏视觉：品牌绿、清洁白、少量金色提示 */
+    :root{--bg:#eef5f3;--panel:#ffffff;--line:#d6e5e1;--cyan:#00a779;--blue:#007f66;--text:#193a33;--muted:#68847d}
+    html,body{background:#eef5f3;color:#193a33}
+    body:before{background:linear-gradient(rgba(0,127,102,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,127,102,.025) 1px,transparent 1px);background-size:28px 28px}
+    .top{background:linear-gradient(105deg,#006c58,#009b77);border:0;box-shadow:0 5px 18px rgba(0,81,66,.18)}
+    .brand b,.online,.clock{color:#fff}.brand small{color:#ccebe3}.logo{background:#fff;color:#00856b;box-shadow:none}
+    .bar{background:#fff;border-bottom:1px solid #d6e5e1}.title span{color:#008d70}.title b{color:#173f36}
+    .stat{border-left-color:#d9e8e4}.stat b{color:#006f5a}.stat span{color:#708a84}.stat em{color:#008f70}
+    .new{background:linear-gradient(105deg,#007f66,#00a779);box-shadow:0 7px 18px rgba(0,127,102,.2);font-weight:700}
+    .panel,.network{background:#fff;border-color:#d6e5e1;box-shadow:0 4px 14px rgba(28,74,64,.06)}
+    .ph{background:#f7fbfa;border-bottom-color:#d6e5e1;color:#21493f}.ph small,.secure{color:#008f70!important}
+    .cityrow{color:#264b43}.cityrow:hover{background:#edf8f5}.cityrow.active{background:#e4f5f0;border-color:#9dd8c8;box-shadow:inset 4px 0 #008f70}
+    .avatar{border-color:#77bdaa;background:#e7f5f1;color:#007b63}.ci small,.load{color:#78918b}.all{background:#f1f8f6;border-color:#cfe3de;color:#007f66}
+    .network{background:radial-gradient(circle,#edf8f5 0,#fff 56%,#f6faf9 100%)}.nt>b{color:#21493f}.nt,.legend{color:#6f8982}
+    .outer{border-color:#96cbbd}.middle{border-color:#87c4b4}.inner{border-color:#95d6c5}
+    .line{background:linear-gradient(90deg,#00a779aa,#00a77922)}.line.hot{background:linear-gradient(90deg,#007f66,#22bd92);box-shadow:0 0 6px rgba(0,167,121,.42)}
+    .province{border-color:#00a779;background:radial-gradient(circle at 35% 30%,#23b98e,#00735d 70%);box-shadow:0 8px 28px rgba(0,112,88,.25);color:#fff}
+    .province small{color:#d8f2eb}.picon{background:#fff;color:#007f66;box-shadow:none}.ring{border-color:#32bb97}
+    .cnode{border-color:#9dcfc2;background:#fff}.cnode span{background:#e4f5f0;color:#007b63}.cnode small{color:#547b71}.cnode.active{border-color:#00a779;box-shadow:0 5px 16px rgba(0,143,112,.2)}.cnode.active span{background:#008f70}
+    .knode>span{border-color:#7fbcae;background:#fff}.knode.group>span{background:#00a779;border-color:#00856b;box-shadow:0 0 5px #44c7a5}.knode.selected>span{background:#f4b63d;border-color:#fff;box-shadow:0 0 9px #dc9d28}
+    .knode small,.knode.selected small{color:#466f65}.olabel{background:#fff;border-color:#b9d8d0;color:#65837c}
+    .route{border-color:#d6e5e1;background:#f7fbfa}.mini{border-color:#82c4b3;background:#e3f4ef;color:#00745e}.rnode small,.flow em{color:#708b84}.flow{border-color:#4ab697}
+    .sect{color:#254b42}.msg{border-color:#d7e5e2;background:#fff;box-shadow:0 2px 8px rgba(35,77,68,.05);cursor:pointer;transition:.2s}.msg:hover{border-color:#00a779;transform:translateY(-1px);box-shadow:0 7px 18px rgba(0,127,102,.11)}
+    .meta span,.msg p{color:#718a84}.audio{background:#e8f4f1}.play{background:#008f70;color:#fff}.wave b{background:#00a779}.delivery{color:#008b6c}
+    .rightPanel,.right{background:#fff}.foot{background:#f7fbfa;border-color:#d6e5e1;color:#68847d}
+    .back{background:rgba(9,45,37,.48)}.modal{border-color:#8dcbbd;background:#fff;color:#193a33;box-shadow:0 24px 70px rgba(16,64,54,.24);border-radius:10px}
+    .ticket{border-color:#cfe2dd;background:#f7fbfa}.ticket li{background:#edf6f3}.tickethead span,.target span,.mh small{color:#6f8982}.ticket li em,.steps b{background:#008f70;color:#fff}.target b{border-color:#cfe2dd;background:#f7fbfa}
+    .actions button{border-color:#aad6ca;background:#edf7f4;color:#17604f}.actions .send{background:linear-gradient(105deg,#007f66,#00a779);color:#fff}
+    .editfield{margin:12px 0}.editfield label{display:block;margin-bottom:6px;color:#54766e;font-size:9px}.editfield input,.ticket input{width:100%;padding:9px;border:1px solid #bddbd3;background:#fff;color:#193a33;outline:none}.ticket input:focus,.editfield input:focus{border-color:#00a779;box-shadow:0 0 0 2px rgba(0,167,121,.1)}
+    .recordbody{padding:14px;background:#f6faf9;border:1px solid #d6e5e1;line-height:1.8;font-size:11px}.recordstatus{display:inline-block;margin-top:12px;padding:5px 10px;border-radius:15px;background:#def3ed;color:#007f66;font-size:9px}
     @media(max-width:1050px){.work{grid-template-columns:220px 1fr}.right{display:none}.stat{min-width:105px;padding:0 13px}}@media(max-width:720px){.app{height:900px}.work{grid-template-columns:1fr}.left{display:none}.bar{height:auto;padding:10px;flex-wrap:wrap}.stats{order:3;width:100%}.stat{flex:1;min-width:0;padding:0 8px}.scene{inset:43px 2px 14px}.knode small{display:none}.brand b{font-size:13px}.brand small,.clock{display:none}}
     </style>
     </head>
@@ -444,11 +452,12 @@ html = dedent(
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div><button class="all">查看全部 13 个地市　→</button></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><button class="province" onclick="openModal()"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></button></div></div>
-        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#46bdd7;font-size:8px">全部记录</span></div><div class="msg" id="message"><div class="meta"><b>哈西甲乙线转检修</b><span id="msgtime">14:18</span></div><p id="msgroute">省调 → 哈尔滨市调</p><button class="audio" onclick="speakText()"><span class="play" id="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>00:18</em></button><div class="delivery">✓ 已送达　✓ 已签收</div></div><div class="msg" style="opacity:.6"><div class="meta"><b>北部断面负荷调整</b><span>13:42</span></div><p>省调 → 齐齐哈尔市调</p><div class="delivery">✓ 已执行</div></div></aside>
+        <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>最近调度指令</span><span style="color:#008f70;font-size:8px">点击卡片查看</span></div><div class="msg" id="message" onclick="openRecord('哈西甲乙线转检修','省调 → 哈尔滨市调','已送达 · 已签收','拉开哈西甲乙线 101 开关；拉开 1011 刀闸；拉开 1012 刀闸；操作完成后立即回令。')"><div class="meta"><b>哈西甲乙线转检修</b><span id="msgtime">14:18</span></div><p id="msgroute">省调 → 哈尔滨市调</p><button class="audio" onclick="event.stopPropagation();speakText()"><span class="play" id="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>00:18</em></button><div class="delivery">✓ 已送达　✓ 已签收</div></div><div class="msg" onclick="openRecord('北部断面负荷调整','省调 → 齐齐哈尔市调','已执行','调整北部断面负荷分配，核对潮流状态，执行完成后向省调回令。')"><div class="meta"><b>北部断面负荷调整</b><span>13:42</span></div><p>省调 → 齐齐哈尔市调</p><div class="delivery">✓ 已执行</div></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
-    <div class="back" id="back" onclick="if(event.target===this)closeModal()"><section class="modal"><div class="mh"><div><b>新建调度指令</b><small>操作票将由省级智能体生成并转为语音</small></div><button class="close" onclick="closeModal()">×</button></div><div class="steps"><b>1</b><span>生成操作票</span><i></i><b>2</b><span>选择接收节点</span><i></i><b>3</b><span>语音下发</span></div><div class="ticket"><div class="tickethead"><span>操作单位</span><b>哈尔滨供电公司</b><span>票号</span><b>HLJ-2026-0725-018</b></div><ol><li><em>01</em>拉开哈西甲乙线 101 开关</li><li><em>02</em>拉开哈西甲乙线 1011 刀闸</li><li><em>03</em>拉开哈西甲乙线 1012 刀闸</li></ol></div><div class="target"><span>下发至</span><b id="targetcity">哈尔滨市调度中心</b><span>目标节点</span><b id="targetcounty">南岗区</b></div><div class="actions"><button onclick="speakText()">试听 AI 语音</button><button class="send" onclick="sendTicket()">生成语音并下发　→</button></div></section></div>
+    <div class="back" id="back" onclick="if(event.target===this)closeModal()"><section class="modal"><div class="mh"><div><b>新建调度指令</b><small>操作内容可编辑，确认后生成语音并下发</small></div><button class="close" onclick="closeModal()">×</button></div><div class="steps"><b>1</b><span>编辑操作票</span><i></i><b>2</b><span>确认接收节点</span><i></i><b>3</b><span>语音下发</span></div><div class="editfield"><label>调度任务名称</label><input id="taskName" value="哈西甲乙线由运行转检修"></div><div class="ticket"><div class="tickethead"><span>操作单位</span><b>哈尔滨供电公司</b><span>票号</span><b>HLJ-2026-0725-018</b></div><ol><li><em>01</em><input id="step1" value="拉开哈西甲乙线 101 开关"></li><li><em>02</em><input id="step2" value="拉开哈西甲乙线 1011 刀闸"></li><li><em>03</em><input id="step3" value="拉开哈西甲乙线 1012 刀闸"></li></ol></div><div class="target"><span>下发至</span><b id="targetcity">哈尔滨市调度中心</b><span>目标节点</span><b id="targetcounty">南岗区</b></div><div class="actions"><button onclick="speakEdited()">试听 AI 语音</button><button class="send" onclick="sendTicket()">生成语音并下发　→</button></div></section></div>
+    <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
     <script>
     const cities=__CITIES__;
     let active=0,selected="南岗区";
@@ -465,8 +474,14 @@ html = dedent(
     }
     function selectCity(i){active=i;selected=cities[i].counties[0];render()}
     function openModal(){document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
+    let currentRecord="";
+    function openRecord(title,route,status,content){currentRecord=content;document.getElementById("recordTitle").textContent=title;document.getElementById("recordRoute").textContent=route;document.getElementById("recordStatus").textContent=status;document.getElementById("recordContent").textContent=content;document.getElementById("recordBack").classList.add("show")}
+    function closeRecord(){document.getElementById("recordBack").classList.remove("show")}
+    function speakRecord(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(currentRecord);u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
+    function editedText(){return document.getElementById("taskName").value+"。"+document.getElementById("step1").value+"。"+document.getElementById("step2").value+"。"+document.getElementById("step3").value+"。操作完成后立即回令。"}
+    function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
-    function sendTicket(){closeModal();const m=document.getElementById("message");m.classList.add("flash");document.getElementById("msgtime").textContent="刚刚";setTimeout(speakText,250)}
+    function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,document.getElementById("msgroute").textContent,"已送达",content);setTimeout(speakEdited,250)}
     setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});document.getElementById("clock").textContent=t;document.getElementById("footclock").textContent=t},1000);render();
     </script>
     </body></html>

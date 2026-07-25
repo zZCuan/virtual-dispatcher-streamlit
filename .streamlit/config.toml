@@ -6,9 +6,9 @@ headless = true
 fileWatcherType = "poll"
 
 [theme]
-base = "dark"
-primaryColor = "#27C9DD"
-backgroundColor = "#07111F"
-secondaryBackgroundColor = "#0B1F33"
-textColor = "#EAF8FF"
+base = "light"
+primaryColor = "#008F70"
+backgroundColor = "#EEF5F3"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#193A33"
 font = "sans serif"
