@@ -463,6 +463,7 @@ def render_harbin_dashboard() -> None:
         function openModal(){const target=selectedCounty||"南岗区";document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===target?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
         function sendDownstream(){post({action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value})}
         renderCounties();renderInbox();raiseFonts();
+        setInterval(()=>{if(speaking<0&&!document.getElementById("modal").classList.contains("show"))post({action:"refresh"})},5000);
         </script></body></html>
         """
     ).replace("__COUNTIES__", json.dumps(counties, ensure_ascii=False)).replace(
@@ -483,6 +484,8 @@ def render_harbin_dashboard() -> None:
                     st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.rerun()
+            elif action == "refresh":
+                st.rerun()
             elif action in {"ack", "forward"}:
                 message = next((row for row in rows if row["id"] == result.get("id")), None)
                 if message is not None:
@@ -499,6 +502,10 @@ def render_harbin_dashboard() -> None:
 
 def render_county_workspace(county: str) -> None:
     touch_agent(f"{county}调度智能体", "county")
+    @st.fragment(run_every="60s")
+    def keep_county_online() -> None:
+        touch_agent(f"{county}调度智能体", "county")
+    keep_county_online()
     messages = load_messages_for(f"{county}调度智能体")
     st.markdown(
         f"""
@@ -989,7 +996,7 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();renderRecent();raiseFonts();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
     </script>
     </body></html>
     """
@@ -1019,6 +1026,8 @@ if isinstance(network_selection, dict):
         st.session_state["processed_network_selection"] = selection_nonce
         if network_selection.get("action") == "openTicket":
             st.session_state["open_operation_ticket_dialog"] = True
+            st.rerun()
+        if network_selection.get("action") == "refresh":
             st.rerun()
         selected_city = network_selection.get("city")
         selected_county = network_selection.get("county")
