@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 import uuid
@@ -14,6 +15,8 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 import streamlit.components.v1 as components
 from pypinyin import lazy_pinyin
+
+from agent_gateway import AgentGateway
 
 
 st.set_page_config(
@@ -56,6 +59,17 @@ st.markdown(
 
 DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+try:
+    streamlit_agent_api_url = str(st.secrets.get("DISPATCH_AGENT_API_URL", ""))
+    streamlit_agent_api_token = str(st.secrets.get("DISPATCH_AGENT_API_TOKEN", ""))
+except Exception:
+    streamlit_agent_api_url = ""
+    streamlit_agent_api_token = ""
+AGENT_API_URL = (os.getenv("DISPATCH_AGENT_API_URL") or streamlit_agent_api_url).strip()
+AGENT_GATEWAY = AgentGateway(
+    AGENT_API_URL,
+    (os.getenv("DISPATCH_AGENT_API_TOKEN") or streamlit_agent_api_token).strip(),
+) if AGENT_API_URL else None
 CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-02"
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
@@ -153,6 +167,9 @@ def connect_db() -> sqlite3.Connection:
 
 
 def touch_agent(agent_id: str, level: str) -> None:
+    if AGENT_GATEWAY:
+        AGENT_GATEWAY.heartbeat(agent_id, level)
+        return
     with connect_db() as connection:
         connection.execute(
             """
@@ -166,6 +183,8 @@ def touch_agent(agent_id: str, level: str) -> None:
 
 
 def load_online_agents(max_age_seconds: int = 30) -> set[str]:
+    if AGENT_GATEWAY:
+        return AGENT_GATEWAY.online_agents(max_age_seconds)
     with connect_db() as connection:
         rows = connection.execute(
             "SELECT agent_id FROM agent_presence WHERE last_seen>=?",
@@ -192,6 +211,17 @@ def send_message(
     receiver: str = "哈尔滨市调度中心",
     request_key: str | None = None,
 ) -> str:
+    if AGENT_GATEWAY:
+        return AGENT_GATEWAY.create_ticket(
+            {
+                "target_county": target_county,
+                "title": title,
+                "steps": steps,
+                "sender": sender,
+                "receiver": receiver,
+                "request_key": request_key,
+            }
+        )
     ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     content = (
         f"{receiver}调度员，请执行以下操作票任务。{title}。"
@@ -230,6 +260,9 @@ def send_message(
 
 
 def acknowledge_message(message_id: str) -> None:
+    if AGENT_GATEWAY:
+        AGENT_GATEWAY.acknowledge(message_id)
+        return
     with connect_db() as connection:
         connection.execute(
             "UPDATE dispatch_messages SET status='已签收', acknowledged_at=? WHERE id=?",
@@ -239,6 +272,9 @@ def acknowledge_message(message_id: str) -> None:
 
 
 def execute_message(message_id: str, executed_by: str) -> None:
+    if AGENT_GATEWAY:
+        AGENT_GATEWAY.execute(message_id, executed_by)
+        return
     with connect_db() as connection:
         ticket_row = connection.execute(
             "SELECT ticket_no FROM dispatch_messages WHERE id=?",
@@ -258,6 +294,9 @@ def execute_message(message_id: str, executed_by: str) -> None:
 
 
 def forward_message_to_county(message: sqlite3.Row) -> None:
+    if AGENT_GATEWAY:
+        AGENT_GATEWAY.forward(message["id"])
+        return
     county = message["target_county"]
     city_center = message["receiver"]
     city_name = city_center.removesuffix("调度中心")
@@ -293,6 +332,8 @@ def forward_message_to_county(message: sqlite3.Row) -> None:
 
 
 def load_messages() -> list[sqlite3.Row]:
+    if AGENT_GATEWAY:
+        return AGENT_GATEWAY.list_tickets()
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -303,6 +344,8 @@ def load_messages() -> list[sqlite3.Row]:
 
 
 def load_messages_for(receiver: str) -> list[sqlite3.Row]:
+    if AGENT_GATEWAY:
+        return AGENT_GATEWAY.list_tickets(receiver=receiver)
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -319,6 +362,8 @@ def load_messages_for(receiver: str) -> list[sqlite3.Row]:
 
 def load_city_messages(city_name: str) -> list[sqlite3.Row]:
     city_center = f"{city_name}调度中心"
+    if AGENT_GATEWAY:
+        return AGENT_GATEWAY.list_tickets(sender_or_receiver=city_center)
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -337,18 +382,29 @@ def load_today_dispatch_stats() -> tuple[int, str]:
     """Return today's real province-originated instruction count and delivery summary."""
     now = beijing_datetime()
     day_start = datetime.combine(now.date(), datetime_time.min, BEIJING_TZ).timestamp()
-    with connect_db() as connection:
-        total, delivered = connection.execute(
-            """
-            SELECT
-                COUNT(*),
-                SUM(CASE WHEN status IN ('已送达', '已签收', '已转发', '已执行')
-                         THEN 1 ELSE 0 END)
-            FROM dispatch_messages
-            WHERE sender='黑龙江省调度中心' AND created_at>=?
-            """,
-            (day_start,),
-        ).fetchone()
+    if AGENT_GATEWAY:
+        rows = [
+            row for row in AGENT_GATEWAY.list_tickets()
+            if row["sender"] == "黑龙江省调度中心" and row["created_at"] >= day_start
+        ]
+        total = len(rows)
+        delivered = sum(
+            1 for row in rows
+            if row["status"] in {"已送达", "已签收", "已转发", "已执行"}
+        )
+    else:
+        with connect_db() as connection:
+            total, delivered = connection.execute(
+                """
+                SELECT
+                    COUNT(*),
+                    SUM(CASE WHEN status IN ('已送达', '已签收', '已转发', '已执行')
+                             THEN 1 ELSE 0 END)
+                FROM dispatch_messages
+                WHERE sender='黑龙江省调度中心' AND created_at>=?
+                """,
+                (day_start,),
+            ).fetchone()
     total = int(total or 0)
     delivered = int(delivered or 0)
     if total == 0:
