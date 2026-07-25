@@ -55,6 +55,7 @@ st.markdown(
 
 DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-01"
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
     "network_topology", path=str(NETWORK_COMPONENT_PATH)
@@ -112,6 +113,24 @@ def connect_db() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
+    cleared = connection.execute(
+        "SELECT 1 FROM app_meta WHERE key=?",
+        (CLEAR_DISPATCH_RECORDS_VERSION,),
+    ).fetchone()
+    if cleared is None:
+        connection.execute("DELETE FROM dispatch_messages")
+        connection.execute(
+            "INSERT INTO app_meta(key, value) VALUES (?, ?)",
+            (CLEAR_DISPATCH_RECORDS_VERSION, str(time.time())),
+        )
     connection.commit()
     return connection
 
