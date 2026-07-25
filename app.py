@@ -460,6 +460,16 @@ html = dedent(
     <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
     <script>
     const cities=__CITIES__;
+    const ticketTemplates=[
+      {line:"哈西甲乙线",switchNo:"101",blade1:"1011",blade2:"1012"},
+      {line:"齐南甲线",switchNo:"301",blade1:"3011",blade2:"3012"},
+      {line:"牡东乙线",switchNo:"401",blade1:"4011",blade2:"4012"},
+      {line:"佳东甲线",switchNo:"501",blade1:"5011",blade2:"5012"},
+      {line:"庆北乙线",switchNo:"601",blade1:"6011",blade2:"6012"},
+      {line:"鸡冠甲线",switchNo:"701",blade1:"7011",blade2:"7012"},
+      {line:"双宝乙线",switchNo:"801",blade1:"8011",blade2:"8012"},
+      {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
+    ];
     let active=0,selected="南岗区";
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
@@ -470,10 +480,19 @@ html = dedent(
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
       cities.forEach((c,ci)=>c.counties.forEach(name=>{const p=polar(k++,total,46);const cp=polar(ci,cities.length,28);if(ci===active){const dx=p.x-cp.x,dy=p.y-cp.y;scene.appendChild(line(cp.x,cp.y,Math.sqrt(dx*dx+dy*dy),Math.atan2(dy,dx),true,"dynamic"))}const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${ci===active?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;render()};scene.appendChild(n)}));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度中心</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度中心</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
-      document.getElementById("msgroute").textContent=`省调 → ${c.name.replace("市","")}市调`;document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
+      document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
     }
     function selectCity(i){active=i;selected=cities[i].counties[0];render()}
-    function openModal(){document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
+    function syncTicketToTarget(){
+      const t=ticketTemplates[active];
+      document.getElementById("taskName").value=`${t.line}由运行转检修`;
+      document.getElementById("step1").value=`拉开${t.line} ${t.switchNo} 开关`;
+      document.getElementById("step2").value=`拉开${t.line} ${t.blade1} 刀闸`;
+      document.getElementById("step3").value=`拉开${t.line} ${t.blade2} 刀闸`;
+      document.getElementById("targetcity").textContent=cities[active].name+"调度中心";
+      document.getElementById("targetcounty").textContent=selected;
+    }
+    function openModal(){syncTicketToTarget();document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
     let currentRecord="";
     function openRecord(title,route,status,content){currentRecord=content;document.getElementById("recordTitle").textContent=title;document.getElementById("recordRoute").textContent=route;document.getElementById("recordStatus").textContent=status;document.getElementById("recordContent").textContent=content;document.getElementById("recordBack").classList.add("show")}
     function closeRecord(){document.getElementById("recordBack").classList.remove("show")}
@@ -481,7 +500,7 @@ html = dedent(
     function editedText(){return document.getElementById("taskName").value+"。"+document.getElementById("step1").value+"。"+document.getElementById("step2").value+"。"+document.getElementById("step3").value+"。操作完成后立即回令。"}
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
-    function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,document.getElementById("msgroute").textContent,"已送达",content);setTimeout(speakEdited,250)}
+    function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
     setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});document.getElementById("clock").textContent=t;document.getElementById("footclock").textContent=t},1000);render();
     </script>
     </body></html>
