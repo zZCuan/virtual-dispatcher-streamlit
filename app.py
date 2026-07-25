@@ -871,10 +871,11 @@ def render_operation_ticket_dialog() -> None:
         st.session_state["dispatch_success"] = (
             f"操作票 {ticket} 已下发至{target_city}调度中心。"
         )
+        st.session_state["open_operation_ticket_dialog"] = False
         st.rerun()
 
 
-if st.session_state.pop("open_operation_ticket_dialog", False):
+if st.session_state.get("open_operation_ticket_dialog", False):
     render_operation_ticket_dialog()
 if dispatch_success := st.session_state.pop("dispatch_success", None):
     st.toast(dispatch_success, icon="✅")
@@ -1045,6 +1046,7 @@ html = dedent(
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
+    const autoRefreshEnabled=__AUTO_REFRESH_ENABLED__;
     function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
     function requestOperationTicket(){window.parent.postMessage({type:"networkTarget",action:"openTicket",city:cities[active].name,county:selected,nonce:Date.now()},"*")}
     function raiseFonts(){}
@@ -1117,7 +1119,7 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);if(autoRefreshEnabled)setInterval(()=>{if(speakingIndex<0&&!document.getElementById("back").classList.contains("show")&&!document.getElementById("recordBack").classList.contains("show"))window.parent.postMessage({type:"networkTarget",action:"refresh",nonce:Date.now()},"*")},5000);render();renderRecent();raiseFonts();
     </script>
     </body></html>
     """
@@ -1133,6 +1135,9 @@ html = dedent(
     "__SELECTED_COUNTY__", json.dumps(focused_county_name, ensure_ascii=False)
 ).replace(
     "__NETWORK_FOCUSED__", "true" if network_is_focused else "false"
+).replace(
+    "__AUTO_REFRESH_ENABLED__",
+    "false" if st.session_state.get("open_operation_ticket_dialog", False) else "true",
 )
 
 network_selection = network_component(
@@ -1156,6 +1161,7 @@ if isinstance(network_selection, dict):
             selected_city in province_targets
             and selected_county in province_targets[selected_city]["counties"]
         ):
+            st.session_state["open_operation_ticket_dialog"] = False
             st.session_state["pending_network_selection"] = {
                 "city": selected_city,
                 "county": selected_county,
