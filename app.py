@@ -329,6 +329,7 @@ def render_login() -> None:
                 st.session_state["auth_role"] = account["role"]
                 st.session_state["auth_name"] = account["name"]
                 st.session_state["auth_county"] = account.get("county")
+                st.session_state["auth_username"] = username.strip()
                 st.rerun()
             else:
                 st.error("账号或密码错误，请核对后重试。")
@@ -529,7 +530,7 @@ def render_harbin_dashboard() -> None:
             st.session_state["harbin_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county"):
+                for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
                     st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.rerun()
@@ -639,7 +640,7 @@ def render_county_dashboard(county: str) -> None:
             st.session_state["county_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county"):
+                for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
                     st.session_state.pop(key, None)
                 st.rerun()
             if action == "refresh":
@@ -648,13 +649,13 @@ def render_county_dashboard(county: str) -> None:
             if message is not None and action in {"ack", "execute"}:
                 acknowledge_message(message["id"]) if action == "ack" else execute_message(
                     message["id"],
-                    st.session_state.get("auth_name") or f"{county}县级调度账号",
+                    st.session_state.get("auth_username") or "nangang_county",
                 )
                 st.rerun()
 
 
 if st.query_params.get("logout") == "1":
-    for key in ("auth_role", "auth_name", "auth_county"):
+    for key in ("auth_role", "auth_name", "auth_county", "auth_username"):
         st.session_state.pop(key, None)
     st.query_params.clear()
     st.rerun()
