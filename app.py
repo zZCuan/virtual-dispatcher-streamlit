@@ -56,6 +56,13 @@ NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
     "network_topology", path=str(NETWORK_COMPONENT_PATH)
 )
+DEMO_ACCOUNTS = {
+    "hlj_province": {"password": "demo123", "role": "province", "name": "黑龙江省级调度账号"},
+    "harbin_city": {"password": "demo123", "role": "harbin", "name": "哈尔滨市级调度账号"},
+    "nangang_county": {
+        "password": "demo123", "role": "county", "name": "南岗区县级调度账号", "county": "南岗区"
+    },
+}
 
 
 def connect_db() -> sqlite3.Connection:
@@ -242,31 +249,51 @@ def load_today_dispatch_stats() -> tuple[int, str]:
 def render_login() -> None:
     st.markdown(
         """
-        <div style="max-width:880px;margin:11vh auto 32px;padding:36px 42px;
-        border:1px solid rgba(57,215,238,.35);border-radius:12px;
-        background:linear-gradient(145deg,rgba(13,38,60,.96),rgba(7,20,35,.96));
-        box-shadow:0 28px 90px rgba(0,0,0,.35)">
-          <div style="color:#39d7ee;font-size:12px;letter-spacing:4px">VIRTUAL DISPATCH NETWORK</div>
-          <h1 style="margin:10px 0 8px;font-size:30px">龙江电网 · 虚拟配网调度中心</h1>
-          <p style="color:#7892a9;margin:0">请选择调度身份进入独立工作台。建议分别在两个浏览器窗口中登录。</p>
+        <style>
+        .login-shell{max-width:760px;margin:6vh auto 18px;display:block;
+        min-height:285px;border-radius:18px;overflow:hidden;background:#fff;box-shadow:0 28px 80px rgba(18,71,59,.18)}
+        .login-brand{padding:56px 48px;background:linear-gradient(145deg,#006451,#009b77);color:#fff;
+        display:flex;flex-direction:column;justify-content:space-between}
+        .login-logo{width:58px;height:58px;display:grid;place-items:center;border-radius:14px 28px;background:#fff;color:#008469;font-size:30px}
+        .login-brand h1{margin:25px 0 12px;font-size:30px;line-height:1.35}.login-brand p{color:#d0ece5;line-height:1.8}
+        .login-points{display:grid;gap:12px;color:#d8f1eb;font-size:13px}.login-points span:before{content:"✓";margin-right:9px;color:#8cf0d2}
+        .login-side{display:none}
+        .demo-accounts{max-width:1040px;margin:0 auto;padding:13px 18px;border:1px solid #cfe3de;border-radius:9px;background:#f7fbfa;color:#55776f;font-size:12px;text-align:center}
+        </style>
+        <div class="login-shell">
+          <section class="login-brand">
+            <div><div class="login-logo">⌁</div><h1>龙江电网<br>虚拟配网调度中心</h1><p>统一身份认证 · 分级权限控制 · 调度指令闭环</p></div>
+            <div class="login-points"><span>省、市、区县三级工作台</span><span>账号权限自动识别</span><span>操作票与语音指令协同</span></div>
+          </section>
+          <section class="login-side"><h2>调度账号登录</h2><p>请输入已授权的调度账号和密码</p></section>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    left, right = st.columns(2, gap="large")
-    with left:
-        st.markdown("### 省级调度账号")
-        st.caption("全局态势监控 · 操作票生成 · 指令下发")
-        if st.button("进入黑龙江省级调度中心 →", use_container_width=True, type="primary"):
-            st.query_params["role"] = "province"
-            st.rerun()
-    with right:
-        st.markdown("### 地市级调度账号")
-        st.caption("指令接收 · 操作票签收 · AI 语音播报")
-        if st.button("进入哈尔滨市级调度中心 →", use_container_width=True):
-            st.query_params["role"] = "harbin"
-            st.rerun()
-    st.info("双窗口演示：复制当前地址打开第二个窗口，两个窗口分别选择不同账号。")
+    _, form_col, _ = st.columns([1.15, 1, 1.15])
+    with form_col:
+        with st.form("dispatch_login"):
+            username = st.text_input("调度账号", placeholder="请输入用户名")
+            password = st.text_input("登录密码", type="password", placeholder="请输入密码")
+            submitted = st.form_submit_button("安全登录", type="primary", use_container_width=True)
+        if submitted:
+            account = DEMO_ACCOUNTS.get(username.strip())
+            if account and password == account["password"]:
+                st.session_state["auth_role"] = account["role"]
+                st.session_state["auth_name"] = account["name"]
+                st.session_state["auth_county"] = account.get("county")
+                st.rerun()
+            else:
+                st.error("账号或密码错误，请核对后重试。")
+    st.markdown(
+        """
+        <div class="demo-accounts">
+          演示账号：省级 <b>hlj_province</b>　·　市级 <b>harbin_city</b>　·　
+          区县级 <b>nangang_county</b>　　统一密码：<b>demo123</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_harbin_workspace() -> None:
@@ -452,6 +479,8 @@ def render_harbin_dashboard() -> None:
             st.session_state["harbin_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
+                for key in ("auth_role", "auth_name", "auth_county"):
+                    st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.rerun()
             elif action in {"ack", "forward"}:
@@ -468,12 +497,70 @@ def render_harbin_dashboard() -> None:
                 st.rerun()
 
 
-role = st.query_params.get("role", "")
-if role not in {"province", "harbin"}:
+def render_county_workspace(county: str) -> None:
+    touch_agent(f"{county}调度智能体", "county")
+    messages = load_messages_for(f"{county}调度智能体")
+    st.markdown(
+        f"""
+        <div class="workspace-brand">
+          <b>龙江电网 · {county}虚拟配网调度中心</b>
+          <small>{county}县级调度账号　·　操作票接收与执行工作台</small>
+          <a class="workspace-logout" href="/?logout=1" target="_self">退出账号</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    total = len(messages)
+    pending = sum(1 for row in messages if row["status"] == "已送达")
+    st.markdown(
+        f"""
+        <div style="display:flex;height:82px;align-items:center;background:#fff;border-bottom:1px solid #d6e5e1">
+          <div style="padding:0 28px"><small style="color:#68847d">区县视角</small><b style="display:block;font-size:19px">{county}调度中心</b></div>
+          <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">接收指令</small><b style="display:block;color:#007f66;font-size:22px">{total}</b></div>
+          <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">待执行</small><b style="display:block;color:#d58a18;font-size:22px">{pending}</b></div>
+          <div style="padding:0 28px;border-left:1px solid #d6e5e1"><small style="color:#68847d">链路状态</small><b style="display:block;color:#00a779;font-size:15px">● 在线</b></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    left, center, right = st.columns([1.1, 3.1, 1.2], gap="small")
+    with left:
+        st.markdown("#### 上级组织")
+        st.info("黑龙江省调度中心\n\n↓\n\n哈尔滨市调度中心")
+    with right:
+        st.markdown("#### 当前链路")
+        st.success(f"哈尔滨市调度中心\n\n↓ 区县独立链路\n\n{county}调度智能体")
+    with center:
+        st.markdown("#### 市调下发操作票")
+        if not messages:
+            st.info("当前暂无下发至本区县的操作票。")
+        for message in messages:
+            with st.container(border=True):
+                st.markdown(f"**{message['title']}**")
+                st.caption(f"操作票号：{message['ticket_no']}　·　状态：{message['status']}")
+                st.markdown(message["content"])
+                if message["status"] == "已送达" and st.button(
+                    "签收并进入执行", key=f"county-ack-{message['id']}", type="primary"
+                ):
+                    acknowledge_message(message["id"])
+                    st.rerun()
+
+
+if st.query_params.get("logout") == "1":
+    for key in ("auth_role", "auth_name", "auth_county"):
+        st.session_state.pop(key, None)
+    st.query_params.clear()
+    st.rerun()
+
+role = st.session_state.get("auth_role")
+if role not in {"province", "harbin", "county"}:
     render_login()
     st.stop()
 if role == "harbin":
     render_harbin_dashboard()
+    st.stop()
+if role == "county":
+    render_county_workspace(st.session_state.get("auth_county") or "南岗区")
     st.stop()
 
 touch_agent("黑龙江省调度中心", "province")
@@ -483,7 +570,7 @@ st.markdown(
     <div class="workspace-brand">
       <b>龙江电网 · 虚拟配网调度中心</b>
       <small>黑龙江省级调度账号　·　指令下发工作台</small>
-      <a class="workspace-logout" href="/" target="_self">退出账号</a>
+      <a class="workspace-logout" href="/?logout=1" target="_self">退出账号</a>
     </div>
     """,
     unsafe_allow_html=True,
