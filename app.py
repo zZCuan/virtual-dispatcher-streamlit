@@ -537,7 +537,8 @@ def render_operation_ticket_dialog() -> None:
         )
     template = province_targets[target_city]
     default_county = st.session_state.get(
-        "network_focus_county", template["counties"][0]
+        "network_focus_county",
+        "南岗区" if target_city == "哈尔滨市" else template["counties"][0],
     )
     if default_county not in template["counties"]:
         default_county = template["counties"][0]
@@ -591,18 +592,8 @@ def render_operation_ticket_dialog() -> None:
         st.success(f"操作票 {ticket} 已下发至{target_city}调度中心。")
 
 
-selected_target_city = st.session_state.get("network_focus_city", "哈尔滨市")
-selected_target_county = st.session_state.get(
-    "network_focus_county", province_targets[selected_target_city]["counties"][0]
-)
-target_info, ticket_action = st.columns([6, 1], vertical_alignment="center")
-with target_info:
-    st.caption(
-        f"当前网络目标　{selected_target_city}调度中心 → {selected_target_county}智能体"
-    )
-with ticket_action:
-    if st.button("＋ 新建操作票", type="primary", use_container_width=True):
-        render_operation_ticket_dialog()
+if st.session_state.pop("open_operation_ticket_dialog", False):
+    render_operation_ticket_dialog()
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
@@ -640,7 +631,8 @@ focused_city_index = next(
     0,
 )
 focused_county_name = st.session_state.get(
-    "network_focus_county", CITIES[focused_city_index]["counties"][0]
+    "network_focus_county",
+    "南岗区" if focused_city_index == 0 else CITIES[focused_city_index]["counties"][0],
 )
 network_is_focused = focused_city_name is not None
 
@@ -725,7 +717,7 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div class="new" style="cursor:default">调度态势总览</div></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>13</b><em>在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>独立运行</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>13 / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县</div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
@@ -749,6 +741,7 @@ html = dedent(
     ];
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
     function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
+    function requestOperationTicket(){window.parent.postMessage({type:"networkTarget",action:"openTicket",city:cities[active].name,county:selected,nonce:Date.now()},"*")}
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
@@ -824,13 +817,16 @@ network_selection = network_component(
 if isinstance(network_selection, dict):
     selection_nonce = network_selection.get("nonce")
     if selection_nonce != st.session_state.get("processed_network_selection"):
+        st.session_state["processed_network_selection"] = selection_nonce
+        if network_selection.get("action") == "openTicket":
+            st.session_state["open_operation_ticket_dialog"] = True
+            st.rerun()
         selected_city = network_selection.get("city")
         selected_county = network_selection.get("county")
         if (
             selected_city in province_targets
             and selected_county in province_targets[selected_city]["counties"]
         ):
-            st.session_state["processed_network_selection"] = selection_nonce
             st.session_state["pending_network_selection"] = {
                 "city": selected_city,
                 "county": selected_county,
