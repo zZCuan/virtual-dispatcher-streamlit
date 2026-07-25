@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import time
+import uuid
+from pathlib import Path
 from textwrap import dedent
 
 import streamlit as st
@@ -27,6 +31,231 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
+
+
+def connect_db() -> sqlite3.Connection:
+    connection = sqlite3.connect(DB_PATH, timeout=10)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dispatch_messages (
+            id TEXT PRIMARY KEY,
+            created_at REAL NOT NULL,
+            sender TEXT NOT NULL,
+            receiver TEXT NOT NULL,
+            title TEXT NOT NULL,
+            ticket_no TEXT NOT NULL,
+            target_county TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '已送达',
+            acknowledged_at REAL
+        )
+        """
+    )
+    connection.commit()
+    return connection
+
+
+def send_message(target_county: str, title: str) -> str:
+    ticket_no = f"HLJ-{time.strftime('%Y%m%d')}-{int(time.time()) % 10000:04d}"
+    content = (
+        f"哈尔滨市调度员，请执行以下操作票任务。{title}。"
+        "第一项，拉开哈西甲乙线一零一开关。"
+        "第二项，拉开哈西甲乙线一零一一刀闸。"
+        "第三项，拉开哈西甲乙线一零一二刀闸。"
+        "操作完成后立即回令。"
+    )
+    with connect_db() as connection:
+        connection.execute(
+            """
+            INSERT INTO dispatch_messages
+            (id, created_at, sender, receiver, title, ticket_no, target_county, content, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                time.time(),
+                "黑龙江省调度中心",
+                "哈尔滨市调度中心",
+                title,
+                ticket_no,
+                target_county,
+                content,
+                "已送达",
+            ),
+        )
+        connection.commit()
+    return ticket_no
+
+
+def acknowledge_message(message_id: str) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            "UPDATE dispatch_messages SET status='已签收', acknowledged_at=? WHERE id=?",
+            (time.time(), message_id),
+        )
+        connection.commit()
+
+
+def load_messages() -> list[sqlite3.Row]:
+    connection = connect_db()
+    connection.row_factory = sqlite3.Row
+    rows = connection.execute(
+        "SELECT * FROM dispatch_messages ORDER BY created_at DESC LIMIT 20"
+    ).fetchall()
+    connection.close()
+    return rows
+
+
+def render_login() -> None:
+    st.markdown(
+        """
+        <div style="max-width:880px;margin:11vh auto 32px;padding:36px 42px;
+        border:1px solid rgba(57,215,238,.35);border-radius:12px;
+        background:linear-gradient(145deg,rgba(13,38,60,.96),rgba(7,20,35,.96));
+        box-shadow:0 28px 90px rgba(0,0,0,.35)">
+          <div style="color:#39d7ee;font-size:12px;letter-spacing:4px">VIRTUAL DISPATCH NETWORK</div>
+          <h1 style="margin:10px 0 8px;font-size:30px">龙江电网 · 虚拟配网调度中心</h1>
+          <p style="color:#7892a9;margin:0">请选择调度身份进入独立工作台。建议分别在两个浏览器窗口中登录。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("### 省级调度账号")
+        st.caption("全局态势监控 · 操作票生成 · 指令下发")
+        if st.button("进入黑龙江省级调度中心 →", use_container_width=True, type="primary"):
+            st.query_params["role"] = "province"
+            st.rerun()
+    with right:
+        st.markdown("### 地市级调度账号")
+        st.caption("指令接收 · 操作票签收 · AI 语音播报")
+        if st.button("进入哈尔滨市级调度中心 →", use_container_width=True):
+            st.query_params["role"] = "harbin"
+            st.rerun()
+    st.info("双窗口演示：复制当前地址打开第二个窗口，两个窗口分别选择不同账号。")
+
+
+def render_harbin_workspace() -> None:
+    top_left, top_right = st.columns([5, 1])
+    with top_left:
+        st.markdown("# 哈尔滨市调度中心")
+        st.caption("HARBIN VIRTUAL DISPATCH AGENT · 指令接收工作台")
+    with top_right:
+        if st.button("退出账号", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+
+    st.markdown(
+        """
+        <div style="display:flex;gap:14px;margin:6px 0 18px">
+          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
+          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">上级通信</small>
+          <b style="display:block;margin-top:5px">黑龙江省调度中心</b></div>
+          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
+          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">链路状态</small>
+          <b style="display:block;margin-top:5px;color:#48dba7">● 专线在线 · 自动接收</b></div>
+          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
+          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">当前账号</small>
+          <b style="display:block;margin-top:5px">哈尔滨市级调度员</b></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    @st.fragment(run_every="2s")
+    def inbox() -> None:
+        messages = load_messages()
+        st.markdown("### 省调下发指令")
+        if not messages:
+            st.info("正在监听省级调度中心，暂无待接收指令。")
+            return
+
+        unread = sum(1 for item in messages if item["status"] == "已送达")
+        if unread:
+            st.success(f"收到 {unread} 条新调度指令，请及时签收。")
+
+        for index, message in enumerate(messages):
+            is_new = message["status"] == "已送达"
+            border = "#39d7ee" if is_new else "rgba(84,167,204,.22)"
+            created = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["created_at"]))
+            st.markdown(
+                f"""
+                <div style="padding:18px 20px;margin:10px 0 4px;border:1px solid {border};
+                border-left:4px solid {border};border-radius:6px;background:#0b1f33">
+                  <div style="display:flex;justify-content:space-between;gap:16px">
+                    <b style="font-size:17px">{message['title']}</b>
+                    <span style="color:#7892a9;font-size:12px">{created}</span>
+                  </div>
+                  <div style="margin:8px 0;color:#7892a9;font-size:13px">
+                    {message['sender']} → {message['receiver']} · 目标节点：{message['target_county']}
+                  </div>
+                  <div style="padding:11px 13px;background:#071827;border-radius:4px;font-size:13px">
+                    操作票号：{message['ticket_no']}<br>{message['content']}
+                  </div>
+                  <div style="margin-top:9px;color:#48dba7;font-size:12px">状态：{message['status']}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            action_left, action_right, _ = st.columns([1, 1, 4])
+            with action_left:
+                if is_new and st.button("签收指令", key=f"ack-{message['id']}", type="primary"):
+                    acknowledge_message(message["id"])
+                    st.rerun()
+            with action_right:
+                if st.button("播放语音", key=f"voice-{message['id']}"):
+                    voice_text = json.dumps(message["content"], ensure_ascii=False)
+                    components.html(
+                        f"""
+                        <script>
+                        const utterance = new SpeechSynthesisUtterance({voice_text});
+                        utterance.lang = "zh-CN";
+                        utterance.rate = 0.88;
+                        window.speechSynthesis.cancel();
+                        window.speechSynthesis.speak(utterance);
+                        </script>
+                        <div style="font:13px sans-serif;color:#48dba7">正在播放 AI 调度语音…</div>
+                        """,
+                        height=32,
+                    )
+            if index == 0:
+                st.caption("页面每 2 秒自动同步一次，省级窗口下发后无需手动刷新。")
+
+    inbox()
+
+
+role = st.query_params.get("role", "")
+if role not in {"province", "harbin"}:
+    render_login()
+    st.stop()
+if role == "harbin":
+    render_harbin_workspace()
+    st.stop()
+
+province_title, province_logout = st.columns([6, 1])
+with province_title:
+    st.markdown("### 黑龙江省级调度账号 · 指令下发工作台")
+with province_logout:
+    if st.button("退出账号", use_container_width=True):
+        st.query_params.clear()
+        st.rerun()
+
+with st.expander("新建操作票并下发至哈尔滨市", expanded=True):
+    target_col, task_col = st.columns([1, 2])
+    with target_col:
+        target_county = st.selectbox(
+            "目标区县节点",
+            ["南岗区", "道里区", "道外区", "香坊区", "平房区", "松北区", "呼兰区", "阿城区"],
+        )
+    with task_col:
+        operation_title = st.text_input("操作任务", value="哈西甲乙线由运行转检修")
+    st.caption("接收方：哈尔滨市调度中心　·　传输方式：共享调度消息队列　·　语音：接收端按需播放")
+    if st.button("生成操作票并下发", type="primary", use_container_width=True):
+        ticket = send_message(target_county, operation_title)
+        st.success(f"操作票 {ticket} 已下发至哈尔滨市调度中心，等待对方签收。")
 
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
