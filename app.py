@@ -55,7 +55,7 @@ st.markdown(
 
 DB_PATH = Path("/tmp/virtual_dispatcher_messages.db")
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
-CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-01"
+CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-02"
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
     "network_topology", path=str(NETWORK_COMPONENT_PATH)
