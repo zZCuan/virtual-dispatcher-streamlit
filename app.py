@@ -390,13 +390,14 @@ def render_harbin_dashboard() -> None:
         const counties=__COUNTIES__,messages=__MESSAGES__;let selectedCounty="南岗区",speaking=-1;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
-        function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>`<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online">● 在线</i></div>`).join("")}
+        function raiseFonts(){document.querySelectorAll("*:not(script):not(style)").forEach(el=>{if(el.dataset.fontRaised)return;const size=parseFloat(getComputedStyle(el).fontSize);if(size){el.style.fontSize=(size+2)+"px";el.dataset.fontRaised="1"}})}
+        function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>`<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online">● 在线</i></div>`).join("");raiseFonts()}
         function selectCounty(c){selectedCounty=c;document.getElementById("chainCounty").textContent=c+"智能体";renderCounties()}
-        function renderInbox(){const box=document.getElementById("inbox");box.innerHTML=(__UNREAD__?`<div class="notice">收到 ${__UNREAD__} 条新调度指令，请及时签收并转发。</div>`:"")+(messages.length?messages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`).join(""):'<div class="empty">正在监听省级调度中心，暂无待接收指令。</div>')}
+        function renderInbox(){const box=document.getElementById("inbox");box.innerHTML=(__UNREAD__?`<div class="notice">收到 ${__UNREAD__} 条新调度指令，请及时签收并转发。</div>`:"")+(messages.length?messages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收指令</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'forward',id:'${m.id}'})">转发至${esc(m.county)}</button>`:""}</div></article>`).join(""):'<div class="empty">正在监听省级调度中心，暂无待接收指令。</div>');raiseFonts()}
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
         function openModal(){document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===selectedCounty?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
         function sendDownstream(){post({action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value})}
-        renderCounties();renderInbox();
+        renderCounties();renderInbox();raiseFonts();
         </script></body></html>
         """
     ).replace("__COUNTIES__", json.dumps(counties, ensure_ascii=False)).replace(
@@ -780,6 +781,7 @@ html = dedent(
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
     function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
     function requestOperationTicket(){window.parent.postMessage({type:"networkTarget",action:"openTicket",city:cities[active].name,county:selected,nonce:Date.now()},"*")}
+    function raiseFonts(){document.querySelectorAll("*:not(script):not(style)").forEach(el=>{if(el.dataset.fontRaised)return;const size=parseFloat(getComputedStyle(el).fontSize);if(size){el.style.fontSize=(size+2)+"px";el.dataset.fontRaised="1"}})}
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
@@ -810,7 +812,7 @@ html = dedent(
         const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.innerHTML=`<span></span>${focused?`<small>${name}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render();syncParentTarget(cities[ci].name,name)};scene.appendChild(n)
       }));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度中心</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度中心</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
-      document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;
+      document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;raiseFonts();
     }
     function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
     function selectProvince(){focused=false;render()}
@@ -821,7 +823,7 @@ html = dedent(
       if(!recentMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">今日暂无调度指令</div>';return}
       box.innerHTML=recentMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p>${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}</div></div>`).join("");
       box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=recentMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
-      box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});
+      box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
     }
     function toggleMessageSpeech(index){
       if(!("speechSynthesis" in window))return;
@@ -849,7 +851,7 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();renderRecent();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();renderRecent();raiseFonts();
     </script>
     </body></html>
     """
