@@ -1051,7 +1051,7 @@ html = dedent(
     function polar(i,n,r){const a=i/n*Math.PI*2-Math.PI/2;return{x:50+Math.cos(a)*r,y:50+Math.sin(a)*r,a}}
     function line(x,y,len,a,hot,kind){const e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x}%;top:${y}%;width:${len}%;transform:rotate(${a}rad)`;return e}
     function render(){
-      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load">${c.load}<i class="${c.online?"":"warn"}">${c.online?"在线":"离线"}</i></span></button>`).join("");
+      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load"><i class="${c.online?"":"warn"}">${c.online?"● 在线":"● 离线"}</i></span></button>`).join("");
       const scene=document.getElementById("scene");scene.querySelectorAll(".dynamic").forEach(e=>e.remove());
       scene.classList.toggle("focused",focused);
       const province=scene.querySelector(".province");province.style.left=focused?"16%":"50%";province.style.top="50%";
