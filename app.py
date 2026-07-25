@@ -107,6 +107,39 @@ def acknowledge_message(message_id: str) -> None:
         connection.commit()
 
 
+def forward_message_to_county(message: sqlite3.Row) -> None:
+    county = message["target_county"]
+    forwarded_content = message["content"].replace(
+        "哈尔滨市调度中心调度员",
+        f"{county}调度员",
+        1,
+    )
+    with connect_db() as connection:
+        connection.execute(
+            """
+            INSERT INTO dispatch_messages
+            (id, created_at, sender, receiver, title, ticket_no, target_county, content, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                time.time(),
+                "哈尔滨市调度中心",
+                f"{county}调度智能体",
+                message["title"],
+                message["ticket_no"],
+                county,
+                forwarded_content,
+                "已送达",
+            ),
+        )
+        connection.execute(
+            "UPDATE dispatch_messages SET status='已转发', acknowledged_at=? WHERE id=?",
+            (time.time(), message["id"]),
+        )
+        connection.commit()
+
+
 def load_messages() -> list[sqlite3.Row]:
     connection = connect_db()
     connection.row_factory = sqlite3.Row
@@ -175,15 +208,15 @@ def render_harbin_workspace() -> None:
     st.markdown(
         """
         <div style="display:flex;gap:14px;margin:6px 0 18px">
-          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
-          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">上级通信</small>
-          <b style="display:block;margin-top:5px">黑龙江省调度中心</b></div>
-          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
-          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">链路状态</small>
-          <b style="display:block;margin-top:5px;color:#48dba7">● 专线在线 · 自动接收</b></div>
-          <div style="flex:1;padding:14px 18px;border:1px solid rgba(57,215,238,.22);
-          background:#0b1f33;border-radius:6px"><small style="color:#7892a9">当前账号</small>
-          <b style="display:block;margin-top:5px">哈尔滨市级调度员</b></div>
+          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
+          background:#fff;border-radius:6px"><small style="color:#68847d">上级通信</small>
+          <b style="display:block;margin-top:5px;color:#193a33">黑龙江省调度中心</b></div>
+          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
+          background:#fff;border-radius:6px"><small style="color:#68847d">链路状态</small>
+          <b style="display:block;margin-top:5px;color:#008f70">● 专线在线 · 自动接收</b></div>
+          <div style="flex:1;padding:14px 18px;border:1px solid #cfe3de;
+          background:#fff;border-radius:6px"><small style="color:#68847d">当前账号</small>
+          <b style="display:block;margin-top:5px;color:#193a33">哈尔滨市级调度员</b></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -203,8 +236,8 @@ def render_harbin_workspace() -> None:
     )
     st.markdown(
         f"""
-        <div style="padding:20px;margin:4px 0 18px;border:1px solid rgba(57,215,238,.24);
-        background:radial-gradient(circle at center,rgba(23,93,122,.28),#081827 65%);border-radius:8px">
+        <div style="padding:20px;margin:4px 0 18px;border:1px solid #cfe3de;
+        background:radial-gradient(circle at center,#e6f5f1,#fff 68%);border-radius:8px">
           <div style="display:flex;justify-content:space-between;margin-bottom:18px">
             <b>哈尔滨市 · 区县智能体网络</b>
             <span style="color:#48dba7;font-size:12px">● 8 / 8 在线 · 独立链路</span>
@@ -212,11 +245,11 @@ def render_harbin_workspace() -> None:
           <div style="display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap">
             <div style="display:flex;flex-direction:column;align-items:center;gap:7px;margin-right:10px">
               <div style="width:76px;height:76px;border:2px solid #5ce4f2;border-radius:50%;
-              display:grid;place-items:center;background:#146080;color:white;font-weight:700;
-              box-shadow:0 0 24px rgba(57,215,238,.38)">哈尔滨</div>
-              <small style="color:#9fc4d5">市级调度智能体</small>
+              display:grid;place-items:center;background:#008f70;color:white;font-weight:700;
+              box-shadow:0 8px 22px rgba(0,143,112,.22)">哈尔滨</div>
+              <small style="color:#54766e">市级调度智能体</small>
             </div>
-            <div style="width:38px;border-top:1px dashed #39d7ee"></div>
+            <div style="width:38px;border-top:1px dashed #008f70"></div>
             {network_nodes}
           </div>
         </div>
@@ -269,23 +302,26 @@ def render_harbin_workspace() -> None:
 
         for index, message in enumerate(messages):
             is_new = message["status"] == "已送达"
-            border = "#39d7ee" if is_new else "rgba(84,167,204,.22)"
+            border = "#008f70" if is_new else "#cfe3de"
             created = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["created_at"]))
             st.markdown(
                 f"""
                 <div style="padding:18px 20px;margin:10px 0 4px;border:1px solid {border};
-                border-left:4px solid {border};border-radius:6px;background:#0b1f33">
+                border-left:4px solid {border};border-radius:6px;background:#fff;
+                box-shadow:0 4px 14px rgba(32,77,67,.06);color:#193a33">
                   <div style="display:flex;justify-content:space-between;gap:16px">
                     <b style="font-size:17px">{message['title']}</b>
                     <span style="color:#7892a9;font-size:12px">{created}</span>
                   </div>
-                  <div style="margin:8px 0;color:#7892a9;font-size:13px">
-                    {message['sender']} → {message['receiver']} · 目标节点：{message['target_county']}
+                  <div style="margin:8px 0;color:#68847d;font-size:13px">
+                    第一段：{message['sender']} → {message['receiver']}<br>
+                    下一段待转发：{message['receiver']} → {message['target_county']}调度智能体
                   </div>
-                  <div style="padding:11px 13px;background:#071827;border-radius:4px;font-size:13px">
+                  <div style="padding:11px 13px;background:#f3f8f6;border:1px solid #dceae6;
+                  border-radius:4px;font-size:13px;color:#294c44">
                     操作票号：{message['ticket_no']}<br>{message['content']}
                   </div>
-                  <div style="margin-top:9px;color:#48dba7;font-size:12px">状态：{message['status']}</div>
+                  <div style="margin-top:9px;color:#008f70;font-size:12px">市级处理状态：{message['status']}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -296,7 +332,17 @@ def render_harbin_workspace() -> None:
                     acknowledge_message(message["id"])
                     st.rerun()
             with action_right:
-                if st.button("播放语音", key=f"voice-{message['id']}"):
+                if message["status"] == "已签收" and st.button(
+                    f"转发至{message['target_county']}",
+                    key=f"forward-{message['id']}",
+                    type="primary",
+                ):
+                    forward_message_to_county(message)
+                    st.rerun()
+                elif message["status"] != "已签收" and st.button(
+                    "播放语音",
+                    key=f"voice-{message['id']}",
+                ):
                     voice_text = json.dumps(message["content"], ensure_ascii=False)
                     components.html(
                         f"""
