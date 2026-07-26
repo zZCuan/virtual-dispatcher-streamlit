@@ -17,6 +17,7 @@ import streamlit.components.v1 as components
 from pypinyin import lazy_pinyin
 
 from agent_gateway import AgentGateway
+from ark_agent import ArkAgent
 
 
 st.set_page_config(
@@ -62,14 +63,25 @@ BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 try:
     streamlit_agent_api_url = str(st.secrets.get("DISPATCH_AGENT_API_URL", ""))
     streamlit_agent_api_token = str(st.secrets.get("DISPATCH_AGENT_API_TOKEN", ""))
+    streamlit_ark_api_key = str(st.secrets.get("ARK_API_KEY", ""))
+    streamlit_ark_base_url = str(st.secrets.get("ARK_BASE_URL", ""))
+    streamlit_ark_model = str(st.secrets.get("ARK_MODEL", ""))
 except Exception:
     streamlit_agent_api_url = ""
     streamlit_agent_api_token = ""
+    streamlit_ark_api_key = ""
+    streamlit_ark_base_url = ""
+    streamlit_ark_model = ""
 AGENT_API_URL = (os.getenv("DISPATCH_AGENT_API_URL") or streamlit_agent_api_url).strip()
 AGENT_GATEWAY = AgentGateway(
     AGENT_API_URL,
     (os.getenv("DISPATCH_AGENT_API_TOKEN") or streamlit_agent_api_token).strip(),
 ) if AGENT_API_URL else None
+ARK_AGENT = ArkAgent(
+    os.getenv("ARK_API_KEY") or streamlit_ark_api_key,
+    os.getenv("ARK_BASE_URL") or streamlit_ark_base_url,
+    os.getenv("ARK_MODEL") or streamlit_ark_model,
+)
 CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-02"
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
 network_component = components.declare_component(
@@ -211,6 +223,18 @@ def send_message(
     receiver: str = "哈尔滨市调度中心",
     request_key: str | None = None,
 ) -> str:
+    review = ARK_AGENT.review_ticket(
+        title=title,
+        steps=steps,
+        sender=sender,
+        receiver=receiver,
+        target_county=target_county,
+    )
+    title, steps = review.title, review.steps
+    st.session_state["ark_last_review"] = {
+        "used_ai": review.used_ai,
+        "note": review.note,
+    }
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.create_ticket(
             {
@@ -497,7 +521,8 @@ def render_harbin_workspace() -> None:
                 downstream_county, downstream_title, downstream_steps,
                 sender="哈尔滨市调度中心", receiver=f"{downstream_county}调度智能体",
             )
-            st.toast(f"操作票 {ticket} 已下发", icon="✅")
+            ark_note = st.session_state.get("ark_last_review", {}).get("note", "")
+            st.toast(f"操作票 {ticket} 已下发。{ark_note}", icon="✅")
 
     stats, action = st.columns([6, 1], vertical_alignment="center")
     with stats:
@@ -969,6 +994,7 @@ def render_operation_ticket_dialog() -> None:
         )
         st.session_state["dispatch_success"] = (
             f"操作票 {ticket} 已下发至{target_city}调度中心。"
+            f"{st.session_state.get('ark_last_review', {}).get('note', '')}"
         )
         st.session_state["open_operation_ticket_dialog"] = False
         st.rerun()
