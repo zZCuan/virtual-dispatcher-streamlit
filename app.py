@@ -603,6 +603,8 @@ def render_harbin_workspace() -> None:
 def render_city_dashboard(city_name: str, counties: list[str], username: str) -> None:
     city_center = f"{city_name}调度中心"
     touch_agent(city_center, "city")
+    if success_message := st.session_state.pop("city_dispatch_success", None):
+        st.toast(success_message, icon="✅")
     online_agents = load_online_agents()
     online_counties = [
         county for county in counties if county_agent_id(city_name, county) in online_agents
@@ -654,7 +656,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
 第二项，执行指定开关操作。
 第三项，复核并向哈尔滨市调回令。</textarea></div><button class="send" onclick="sendDownstream()">确认并下发操作票</button></section></div>
         <script>
-        const counties=__COUNTIES__,onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__;let selectedCounty="",recordType="incoming",speaking=-1;
+        const counties=__COUNTIES__,onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__;let selectedCounty="",recordType=__INITIAL_RECORD_TYPE__,speaking=-1;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
         function raiseFonts(){}
@@ -666,7 +668,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
         function openModal(){const target=selectedCounty||"南岗区";document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===target?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
         function sendDownstream(){const button=document.querySelector(".modal .send");if(button.disabled)return;button.disabled=true;button.textContent="正在下发…";const payload={action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value};closeModal();post(payload)}
-        renderCounties();renderInbox();raiseFonts();
+        renderCounties();setRecordType(recordType);raiseFonts();
         setInterval(()=>{if(speaking<0&&!document.getElementById("modal").classList.contains("show"))post({action:"refresh"})},5000);
         </script></body></html>
         """
@@ -680,6 +682,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         "__ONLINE_COUNTIES__", json.dumps(online_counties, ensure_ascii=False)
     ).replace(
         "__MESSAGES__", json.dumps(message_data, ensure_ascii=False)
+    ).replace(
+        "__INITIAL_RECORD_TYPE__",
+        json.dumps(st.session_state.pop("city_initial_record_type", "incoming")),
     ).replace("__COUNTY_ONLINE__", str(len(online_counties))).replace(
         "__COUNTY_TOTAL__", str(len(counties))
     ).replace("__UNREAD__", str(unread)
@@ -703,11 +708,15 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                     acknowledge_message(message["id"]) if action == "ack" else forward_message_to_county(message)
                     st.rerun()
             elif action == "downstream" and result.get("county") in counties:
-                send_message(
+                ticket = send_message(
                     result["county"], result.get("title") or "区域配网运行方式调整",
                     result.get("steps") or "核对线路状态并执行操作。",
                     sender=city_center, receiver=county_agent_id(city_name, result["county"]),
                     request_key=f"downstream:{nonce}",
+                )
+                st.session_state["city_initial_record_type"] = "outgoing"
+                st.session_state["city_dispatch_success"] = (
+                    f"操作票 {ticket} 已保存并下发至{result['county']}。"
                 )
                 st.rerun()
 

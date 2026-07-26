@@ -27,7 +27,7 @@ class ArkAgent:
         api_key: str,
         base_url: str,
         model: str,
-        timeout_seconds: float = 15,
+        timeout_seconds: float = 8,
     ) -> None:
         self.api_key = api_key.strip()
         self.base_url = base_url.rstrip("/")
@@ -107,15 +107,7 @@ class ArkAgent:
                 True,
                 "已通过火山方舟调度智能体文字审校",
             )
-        except (
-            KeyError,
-            IndexError,
-            TypeError,
-            ValueError,
-            json.JSONDecodeError,
-            urllib.error.URLError,
-            TimeoutError,
-        ) as exc:
+        except Exception as exc:
             return TicketReview(
                 title,
                 steps,
