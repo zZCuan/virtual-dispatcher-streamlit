@@ -1302,7 +1302,7 @@ html = dedent(
       const province=scene.querySelector(".province");province.style.left=focused?"16%":"50%";province.style.top="50%";
       const center={x:54,y:50};
       if(focused){
-        [["上级｜省级调度","superior"],["当前｜地市调度","current"],["下属区县节点","subordinate"],["灰色虚线节点：同级地市","peerTag"]].forEach(([textName,kind])=>{const tag=document.createElement("div");tag.className=`hierarchyTag ${kind} dynamic`;tag.textContent=textName;scene.appendChild(tag)})
+        [["上级｜省级调度","superior"],["当前｜地市调度","current"],["区县智能体｜同级并列","subordinate"],["灰色虚线节点：同级地市","peerTag"]].forEach(([textName,kind])=>{const tag=document.createElement("div");tag.className=`hierarchyTag ${kind} dynamic`;tag.textContent=textName;scene.appendChild(tag)})
       }
       cities.forEach((c,i)=>{
         const base=ellipse(i,cities.length,focused?43:28.5,focused?38:24.5);
@@ -1316,7 +1316,8 @@ html = dedent(
         if(focused){
           if(ci!==active){k++;return}
           const split=Math.ceil(c.counties.length/2),outer=countyIndex>=split,ri=outer?countyIndex-split:countyIndex,rn=outer?c.counties.length-split:split;
-          p=ellipse(ri,rn,outer?36:24,outer?34:22,center.x,center.y);
+          const stagger=outer?Math.PI/rn:0;
+          p=ellipse(ri,rn,outer?36:24,outer?34:22,center.x,center.y,-Math.PI/2+stagger);
           scene.appendChild(connect(center.x,center.y,p.x,p.y,name===selected,`dynamic subordinateLine ${countyOnline?"":"offlineLine"}`));
         }else{
           p=ellipse(k,total,45.5,38);
