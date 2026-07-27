@@ -342,30 +342,11 @@ def run_agent_cycle(
         return state
 
     latest = messages[0]
-    analysis_key = f"agent_analysis:{level}:{latest['id']}"
-    analysis = load_meta_json(analysis_key)
-    if analysis is None:
-        handoff = ARK_AGENT.coordinate_handoff(
-            level=level,
-            title=latest["title"],
-            task_text=latest["content"],
-            sender=latest["sender"],
-            receiver=latest["receiver"],
-            target_region=latest["target_county"],
-        )
-        analysis = {
-            "analysis": handoff.analysis,
-            "prepared_task": handoff.delegated_task,
-            "used_ai": handoff.used_ai,
-            "prepared_at": time.time(),
-        }
-        save_meta_json(analysis_key, analysis)
-
     state = {
         "status": (
-            "已完成承接分析"
+            "正在监听并校验任务状态"
             if level == "city"
-            else "已完成操作票解析"
+            else "正在监听待执行操作票"
         ),
         "detail": f"{latest['ticket_no']} · {latest['status']}",
         "updated_at": time.time(),
@@ -928,6 +909,12 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
     @st.fragment(run_every="20s")
     def keep_city_heartbeat() -> None:
         touch_agent(city_center, "city")
+        fresh_rows = load_city_messages(city_name)
+        run_agent_cycle(
+            username,
+            "city",
+            [row for row in fresh_rows if row["receiver"] == city_center],
+        )
     keep_city_heartbeat()
     if success_message := st.session_state.pop("city_dispatch_success", None):
         st.toast(success_message, icon="✅")
@@ -938,15 +925,6 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
     rows = load_city_messages(city_name)
     city_inbox = [row for row in rows if row["receiver"] == city_center]
     city_agent_state = run_agent_cycle(username, "city", city_inbox)
-    @st.fragment(run_every="10s")
-    def run_city_agent_worker() -> None:
-        fresh_rows = load_city_messages(city_name)
-        run_agent_cycle(
-            username,
-            "city",
-            [row for row in fresh_rows if row["receiver"] == city_center],
-        )
-    run_city_agent_worker()
     message_data = [
         {
             "id": row["id"], "title": row["title"], "sender": row["sender"],
@@ -1122,17 +1100,14 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     @st.fragment(run_every="20s")
     def keep_county_dashboard_heartbeat() -> None:
         touch_agent(agent_id, "county")
-    keep_county_dashboard_heartbeat()
-    rows = load_messages_for(agent_id)
-    county_agent_state = run_agent_cycle(username, "county", rows)
-    @st.fragment(run_every="10s")
-    def run_county_agent_worker() -> None:
         run_agent_cycle(
             username,
             "county",
             load_messages_for(agent_id),
         )
-    run_county_agent_worker()
+    keep_county_dashboard_heartbeat()
+    rows = load_messages_for(agent_id)
+    county_agent_state = run_agent_cycle(username, "county", rows)
     messages = [
         {
             "id": row["id"], "title": row["title"], "ticket": row["ticket_no"],
