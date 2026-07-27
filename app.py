@@ -33,6 +33,8 @@ st.markdown(
     <style>
     #MainMenu, header, footer, [data-testid="stToolbar"] {display:none!important}
     [data-testid="stAppViewContainer"] {background:#eef5f3}
+    /* Keep intentional transition layers crisp while Streamlit replaces a script run. */
+    .stale, [data-stale="true"] {opacity:1!important}
     [data-testid="stMain"] > div {padding:0!important;max-width:none!important}
     [data-testid="stExpander"] {background:#fff;border-color:#d6e5e1!important}
     [data-testid="stExpander"] details {border-radius:0 0 10px 10px}
@@ -771,7 +773,7 @@ def render_login_transition(account: dict[str, str], username: str) -> None:
         }}
         .verify-card {{
           width:min(560px,calc(100vw - 40px));padding:44px 48px;border:1px solid #c9e0da;
-          border-radius:18px;background:rgba(255,255,255,.96);text-align:center;
+          border-radius:18px;background:#fff;text-align:center;
           box-shadow:0 28px 80px rgba(18,71,59,.18);
         }}
         .verify-mark {{
@@ -854,8 +856,8 @@ def render_login() -> None:
                 st.session_state["auth_county"] = account.get("county")
                 st.session_state["auth_city"] = account.get("city")
                 st.session_state["auth_username"] = username.strip()
-                render_login_transition(account, username.strip())
-                time.sleep(1.1)
+                st.session_state["login_transition_pending"] = True
+                st.session_state["login_transition_started"] = time.time()
                 st.rerun()
             else:
                 st.error("账号或密码错误，请核对后重试。")
@@ -1538,6 +1540,23 @@ for city in CITIES:
         }
 
 role = st.session_state.get("auth_role")
+if role and st.session_state.get("login_transition_pending"):
+    render_login_transition(
+        {"role": role},
+        st.session_state.get("auth_username") or "authorized_user",
+    )
+
+    @st.fragment(run_every="1s")
+    def finish_login_transition() -> None:
+        started_at = float(st.session_state.get("login_transition_started", 0))
+        if time.time() - started_at >= 0.8:
+            st.session_state.pop("login_transition_pending", None)
+            st.session_state.pop("login_transition_started", None)
+            st.rerun()
+
+    finish_login_transition()
+    st.stop()
+
 if role not in {"province", "city", "county"}:
     render_login()
     st.stop()
