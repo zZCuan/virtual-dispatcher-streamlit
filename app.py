@@ -1775,7 +1775,7 @@ html = dedent(
     ];
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
     function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
-    function requestOperationTicket(){window.parent.postMessage({type:"networkTarget",action:"openTicket",city:cities[active].name,county:selected,nonce:Date.now()},"*")}
+    function requestOperationTicket(){openModal()}
     function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
     function showGlobalProcessing(title,detail){document.getElementById("globalProcessingTitle").textContent=title;document.getElementById("globalProcessingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("globalProcessing").classList.add("show")}
     function raiseFonts(){}
@@ -1865,12 +1865,15 @@ html = dedent(
       speechSynthesis.speak(u);
     }
     function syncTicketToTarget(){
-      const t=ticketTemplates[active];
-      document.getElementById("taskName").value=`${t.line}由运行转检修`;
-      document.getElementById("step1").value=`拉开${t.line} ${t.switchNo} 开关`;
-      document.getElementById("step2").value=`拉开${t.line} ${t.blade1} 刀闸`;
-      document.getElementById("step3").value=`拉开${t.line} ${t.blade2} 刀闸`;
-      document.getElementById("targetcity").textContent=cities[active].name+"调度中心";
+      const city=cities[active],countyIndex=Math.max(0,city.counties.indexOf(selected));
+      const countyShort=selected.replace(/[区县市]/g,"").slice(0,2);
+      const line=`${city.short}${countyShort}${countyIndex%2===0?"甲线":"乙线"}`;
+      const switchNo=(active+1)*100+1+countyIndex*10;
+      document.getElementById("taskName").value=`${line}由运行转检修`;
+      document.getElementById("step1").value=`拉开${line} ${switchNo} 开关`;
+      document.getElementById("step2").value=`拉开${line} ${switchNo}1 刀闸`;
+      document.getElementById("step3").value=`拉开${line} ${switchNo}2 刀闸`;
+      document.getElementById("targetcity").textContent=city.name+"调度中心";
       document.getElementById("targetcounty").textContent=selected;
     }
     function openModal(){syncTicketToTarget();document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
@@ -1881,7 +1884,7 @@ html = dedent(
     function editedText(){return document.getElementById("taskName").value+"。"+document.getElementById("step1").value+"。"+document.getElementById("step2").value+"。"+document.getElementById("step3").value+"。操作完成后立即回令。"}
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
-    function sendTicket(){const title=document.getElementById("taskName").value;const content=editedText();const route=`省调 → ${cities[active].name.replace("市","")}市调`;closeModal();const m=document.getElementById("message");m.classList.add("flash");m.querySelector(".meta b").textContent=title;document.getElementById("msgroute").textContent=route;document.getElementById("msgtime").textContent="刚刚";m.onclick=()=>openRecord(title,route,"已送达",content);setTimeout(speakEdited,250)}
+    function sendTicket(){const title=document.getElementById("taskName").value,steps=[document.getElementById("step1").value,document.getElementById("step2").value,document.getElementById("step3").value].map((v,i)=>`第${["一","二","三"][i]}项，${v}。`).join("\n");closeModal();showGlobalProcessing("省级智能体正在下发操作票",`正在校验${cities[active].name}管辖范围、分析任务并写入共享任务库`);window.parent.postMessage({type:"networkTarget",action:"provinceDispatch",city:cities[active].name,county:selected,title,steps,nonce:Date.now()},"*")}
     setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();initFilters();raiseFonts();
     </script>
     </body></html>
@@ -1916,6 +1919,25 @@ if isinstance(network_selection, dict):
         if network_selection.get("action") == "openTicket":
             st.session_state["open_operation_ticket_dialog"] = True
             st.rerun()
+        if network_selection.get("action") == "provinceDispatch":
+            dispatch_city = network_selection.get("city")
+            dispatch_county = network_selection.get("county")
+            if (
+                dispatch_city in province_targets
+                and dispatch_county in province_targets[dispatch_city]["counties"]
+            ):
+                ticket = send_message(
+                    dispatch_county,
+                    network_selection.get("title") or "配网运行方式调整",
+                    network_selection.get("steps") or "核对线路状态并执行操作。",
+                    receiver=f"{dispatch_city}调度中心",
+                    request_key=f"province:{selection_nonce}",
+                )
+                st.session_state["dispatch_success"] = (
+                    f"操作票 {ticket} 已下发至{dispatch_city}调度中心。"
+                    f"{st.session_state.get('ark_last_review', {}).get('note', '')}"
+                )
+                st.rerun()
         if network_selection.get("action") == "clearCommands":
             st.session_state["open_clear_dispatch_dialog"] = True
             st.rerun()
