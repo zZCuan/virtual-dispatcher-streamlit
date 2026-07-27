@@ -1846,6 +1846,14 @@ html = dedent(
       const sector=citySector(cityIndex),a=sector.start+sector.span/2;
       return{x:50+Math.cos(a)*rx,y:50+Math.sin(a)*ry,a}
     }
+    function peerCityPoint(cityIndex,activeIndex){
+      const peerIndex=cityIndex<activeIndex?cityIndex:cityIndex-1;
+      const peerCount=Math.max(1,cities.length-1);
+      const startAngle=Math.PI*7/6;
+      const availableAngle=Math.PI*5/3;
+      const a=startAngle+(peerCount<=1?0:peerIndex/(peerCount-1)*availableAngle);
+      return{x:54+Math.cos(a)*40,y:50+Math.sin(a)*42,a}
+    }
     function circlePoint(i,n,radiusPx,cx=54,cy=50){const scene=document.getElementById("scene"),a=i/n*Math.PI*2-Math.PI/2;return{x:cx+Math.cos(a)*radiusPx/scene.clientWidth*100,y:cy+Math.sin(a)*radiusPx/scene.clientHeight*100,a}}
     function connect(x1,y1,x2,y2,hot,kind){const scene=document.getElementById("scene"),dx=(x2-x1)*scene.clientWidth/100,dy=(y2-y1)*scene.clientHeight/100,e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x1}%;top:${y1}%;width:${Math.hypot(dx,dy)}px;transform:rotate(${Math.atan2(dy,dx)}rad)`;return e}
     function render(){
@@ -1861,8 +1869,8 @@ html = dedent(
         [["上级｜省级调度","superior"],["当前｜地市调度","current"],["区县智能体｜同级并列","subordinate"],["灰色虚线节点：同级地市","peerTag"]].forEach(([textName,kind])=>{const tag=document.createElement("div");tag.className=`hierarchyTag ${kind} dynamic`;tag.textContent=textName;scene.appendChild(tag)})
       }
       cities.forEach((c,i)=>{
-        const base=ellipse(i,cities.length,focused?43:28.5,focused?38:24.5);
-        const p=focused?(i===active?center:{x:54+(base.x-50),y:50+(base.y-50)}):base;
+        const base=ellipse(i,cities.length,28.5,24.5);
+        const p=focused?(i===active?center:peerCityPoint(i,active)):base;
         if(!focused||i===active){const sx=focused?16:50,sy=50;scene.appendChild(connect(sx,sy,p.x,p.y,i===active,`dynamic ${focused?"superiorLine":""} ${c.online?"":"offlineLine"}`))}
         const n=document.createElement("button");n.className=`cnode dynamic ${armedKey===`city:${i}`?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""} ${c.online?"onlineNode":"offline"}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name}调度智能体 · ${c.online?"在线":"离线"} · ${c.counties.length}个区县`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
       });
