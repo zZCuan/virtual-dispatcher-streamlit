@@ -2007,8 +2007,26 @@ html = dedent(
             p.x=Math.max(215,Math.min(860,p.x));p.y=Math.max(48,Math.min(575,p.y))
           })
         }
-        const occupied=[];
+        const occupied=[],leaderSegments=[];
         function overlaps(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+        function pointSegmentDistance(px,py,x1,y1,x2,y2){
+          const dx=x2-x1,dy=y2-y1,length2=dx*dx+dy*dy;
+          if(!length2)return Math.hypot(px-x1,py-y1);
+          const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/length2));
+          return Math.hypot(px-(x1+t*dx),py-(y1+t*dy))
+        }
+        function orientation(ax,ay,bx,by,cx,cy){return Math.sign((by-ay)*(cx-bx)-(bx-ax)*(cy-by))}
+        function segmentsCross(a,b){
+          return orientation(a.x1,a.y1,a.x2,a.y2,b.x1,b.y1,b.x2,b.y2)!==orientation(a.x1,a.y1,a.x2,a.y2,b.x2,b.y2)
+            &&orientation(a.x1,a.y1,a.x2,a.y2,b.x1,b.y1)!==orientation(a.x1,a.y1,a.x2,a.y2,b.x2,b.y2)
+        }
+        function scoreLeader(box,p){
+          const joinX=box.anchor==="end"?box.x+box.w:box.anchor==="middle"?box.x+box.w/2:box.x;
+          const segment={x1:p.x,y1:p.y,x2:joinX,y2:box.y+box.h/2};
+          const nodePasses=countyPoints.filter(q=>q!==p&&pointSegmentDistance(q.x,q.y,segment.x1,segment.y1,segment.x2,segment.y2)<11).length;
+          const lineCrosses=leaderSegments.filter(other=>segmentsCross(segment,other)).length;
+          return{segment,penalty:nodePasses*18000+lineCrosses*9000}
+        }
         const placementOrder=[...countyPoints].sort((a,b)=>a.density-b.density);
         placementOrder.forEach(p=>{
           const w=Math.max(44,p.name.length*9+14),h=20,candidates=[];
@@ -2020,7 +2038,8 @@ html = dedent(
             const outside=Math.max(0,205-box.x)+Math.max(0,box.x+w-885)+Math.max(0,38-box.y)+Math.max(0,box.y+h-588);
             const collisions=occupied.filter(other=>overlaps(box,other)).length;
             const nodeHits=countyPoints.filter(q=>q!==p&&q.x>box.x-7&&q.x<box.x+w+7&&q.y>box.y-7&&q.y<box.y+h+7).length;
-            box.score=collisions*10000+nodeHits*5000+outside*500+Math.hypot(dx,dy);candidates.push(box)
+            const leader=scoreLeader(box,p);
+            box.segment=leader.segment;box.score=collisions*10000+nodeHits*5000+leader.penalty+outside*500+Math.hypot(dx,dy);candidates.push(box)
           }));
           if(p.density){
             for(let gy=64;gy<=554;gy+=28){
@@ -2028,13 +2047,14 @@ html = dedent(
                 const box={x:Math.min(884-w,gx-w/2),y:gy-h/2,w,h,anchor:"middle"};
                 const collisions=occupied.filter(other=>overlaps(box,other)).length;
                 const nodeHits=countyPoints.filter(q=>q.x>box.x-8&&q.x<box.x+w+8&&q.y>box.y-8&&q.y<box.y+h+8).length;
-                box.score=collisions*10000+nodeHits*5000+Math.hypot(box.x+w/2-p.x,box.y+h/2-p.y)*.22;
+                const leader=scoreLeader(box,p);
+                box.segment=leader.segment;box.score=collisions*10000+nodeHits*5000+leader.penalty+Math.hypot(box.x+w/2-p.x,box.y+h/2-p.y)*.22;
                 candidates.push(box)
               })
             }
           }
           const best=candidates.sort((a,b)=>a.score-b.score)[0];
-          p.label=best;occupied.push(best)
+          p.label=best;occupied.push(best);leaderSegments.push(best.segment)
         });
         countyPoints.forEach(p=>{
           const box=p.label,isSelected=p.name===selected;
@@ -2043,7 +2063,7 @@ html = dedent(
           else if(box.anchor==="middle"){textX=box.x+box.w/2;textAnchor="middle";joinX=box.x+box.w/2}
           else{textX=box.x+6;textAnchor="start";joinX=box.x}
           const joinY=box.y+box.h/2;
-          parts.push(`<polyline class="mapCountyLeader" points="${p.ax},${p.ay} ${p.x},${p.y} ${joinX},${joinY}"/>`);
+          parts.push(`<line class="mapCountyLeader" x1="${p.x}" y1="${p.y}" x2="${joinX}" y2="${joinY}"/>`);
           parts.push(`<g class="mapCounty ${p.online?"online":""}" data-map-county="${p.index}" style="cursor:pointer"><circle cx="${p.x}" cy="${p.y}" r="${isSelected?6:4}"/><rect class="mapCountyLabel" x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="8"/><text x="${textX}" y="${box.y+13}" text-anchor="${textAnchor}">${escapeHtml(p.name)}</text></g>`)
         });
         overlayParts.push(`<g class="mapBack" onclick="selectProvince()"><rect x="22" y="560" width="112" height="28"/><text x="78" y="578">返回全省地图</text></g>`)
