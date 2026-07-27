@@ -756,6 +756,66 @@ def load_today_dispatch_stats() -> tuple[int, str]:
     return total, f"{round(delivered / total * 100)}% 送达"
 
 
+def render_login_transition(account: dict[str, str], username: str) -> None:
+    role_label = {
+        "province": "省级调度权限",
+        "city": "市级调度权限",
+        "county": "区县级执行权限",
+    }.get(account["role"], "调度权限")
+    st.markdown(
+        f"""
+        <style>
+        .login-transition {{
+          position:fixed;inset:0;z-index:999999;display:grid;place-items:center;
+          background:linear-gradient(145deg,#edf6f3 0%,#f8fbfa 52%,#e4f1ed 100%);
+        }}
+        .verify-card {{
+          width:min(560px,calc(100vw - 40px));padding:44px 48px;border:1px solid #c9e0da;
+          border-radius:18px;background:rgba(255,255,255,.96);text-align:center;
+          box-shadow:0 28px 80px rgba(18,71,59,.18);
+        }}
+        .verify-mark {{
+          position:relative;width:76px;height:76px;margin:0 auto 24px;border-radius:50%;
+          display:grid;place-items:center;background:linear-gradient(145deg,#00745e,#12a47f);
+          color:#fff;font-size:30px;font-weight:800;box-shadow:0 10px 28px rgba(0,116,94,.25);
+        }}
+        .verify-mark:after {{
+          content:"";position:absolute;inset:-9px;border:2px solid #55bca4;border-radius:50%;
+          animation:verifyPulse 1.25s ease-out infinite;
+        }}
+        .verify-card h2 {{margin:0;color:#173d35;font-size:24px;letter-spacing:1px}}
+        .verify-card p {{margin:10px 0 22px;color:#66837c;font-size:14px}}
+        .verify-account {{
+          padding:12px 16px;border-radius:8px;background:#edf7f4;color:#26715f;font-size:13px;
+        }}
+        .verify-steps {{display:flex;justify-content:center;gap:9px;margin-top:23px}}
+        .verify-steps i {{
+          width:8px;height:8px;border-radius:50%;background:#79c5b2;
+          animation:verifyDot 1.1s ease-in-out infinite;
+        }}
+        .verify-steps i:nth-child(2) {{animation-delay:.18s}}
+        .verify-steps i:nth-child(3) {{animation-delay:.36s}}
+        @keyframes verifyPulse {{
+          from {{transform:scale(.85);opacity:.9}} to {{transform:scale(1.28);opacity:0}}
+        }}
+        @keyframes verifyDot {{
+          0%,100% {{transform:translateY(0);opacity:.35}} 50% {{transform:translateY(-6px);opacity:1}}
+        }}
+        </style>
+        <div class="login-transition">
+          <section class="verify-card">
+            <div class="verify-mark">✓</div>
+            <h2>统一身份认证中</h2>
+            <p>正在验证账号权限并加载对应调度工作台</p>
+            <div class="verify-account">账号：{username}　·　识别权限：{role_label}</div>
+            <div class="verify-steps"><i></i><i></i><i></i></div>
+          </section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_login() -> None:
     st.markdown(
         """
@@ -794,6 +854,8 @@ def render_login() -> None:
                 st.session_state["auth_county"] = account.get("county")
                 st.session_state["auth_city"] = account.get("city")
                 st.session_state["auth_username"] = username.strip()
+                render_login_transition(account, username.strip())
+                time.sleep(1.1)
                 st.rerun()
             else:
                 st.error("账号或密码错误，请核对后重试。")
