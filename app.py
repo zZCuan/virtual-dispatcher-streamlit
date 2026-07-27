@@ -281,9 +281,18 @@ def send_message(
         target_county=target_county,
     )
     title, steps = review.title, review.steps
+    dispatch_level = "province" if sender == "黑龙江省调度中心" else "city"
+    handoff = ARK_AGENT.coordinate_handoff(
+        level=dispatch_level,
+        title=title,
+        task_text=steps,
+        sender=sender,
+        receiver=receiver,
+        target_region=target_county,
+    )
     st.session_state["ark_last_review"] = {
-        "used_ai": review.used_ai,
-        "note": review.note,
+        "used_ai": review.used_ai or handoff.used_ai,
+        "note": f"{review.note}；{handoff.note}".strip("；"),
     }
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.create_ticket(
@@ -297,10 +306,15 @@ def send_message(
             }
         )
     ticket_no = f"HLJ-{beijing_datetime().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    analysis_label = (
+        "省级智能体任务分析"
+        if dispatch_level == "province"
+        else "市级智能体任务细化"
+    )
     content = (
-        f"{receiver}调度员，请执行以下操作票任务。{title}。"
-        f"{steps.replace(chr(10), '；')}。"
-        "操作完成后立即回令。"
+        f"【{analysis_label}】{handoff.analysis}\n"
+        f"【下级智能体任务】{handoff.delegated_task}\n"
+        f"{receiver}调度员，请按操作票执行；操作完成后立即回令。"
     )
     if SUPABASE_DB:
         if request_key:
@@ -325,9 +339,7 @@ def send_message(
                 "content": content,
                 "status": "已送达",
                 "request_key": request_key,
-                "dispatch_level": "province"
-                if sender == "黑龙江省调度中心"
-                else "city",
+                "dispatch_level": dispatch_level,
             }
         ).execute()
         return ticket_no
@@ -440,6 +452,19 @@ def forward_message_to_county(message: sqlite3.Row) -> None:
         f"{city_center}调度员",
         f"{county}调度员",
         1,
+    )
+    handoff = ARK_AGENT.coordinate_handoff(
+        level="city",
+        title=message["title"],
+        task_text=forwarded_content,
+        sender=city_center,
+        receiver=county_agent_id(city_name, county),
+        target_region=county,
+    )
+    forwarded_content = (
+        f"【市级智能体承接校验】{handoff.analysis}\n"
+        f"【向区县智能体细化任务】{handoff.delegated_task}\n"
+        f"{county}调度员，请执行并在完成后向{city_center}提交回令。"
     )
     if SUPABASE_DB:
         forward_key = f"forward:{message['id']}"
