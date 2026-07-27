@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 import streamlit.components.v1 as components
 from pypinyin import lazy_pinyin
+from supabase import Client, create_client
 
 from agent_gateway import AgentGateway
 from ark_agent import ArkAgent
@@ -66,12 +67,16 @@ try:
     streamlit_ark_api_key = str(st.secrets.get("ARK_API_KEY", ""))
     streamlit_ark_base_url = str(st.secrets.get("ARK_BASE_URL", ""))
     streamlit_ark_model = str(st.secrets.get("ARK_MODEL", ""))
+    streamlit_supabase_url = str(st.secrets.get("SUPABASE_URL", ""))
+    streamlit_supabase_secret_key = str(st.secrets.get("SUPABASE_SECRET_KEY", ""))
 except Exception:
     streamlit_agent_api_url = ""
     streamlit_agent_api_token = ""
     streamlit_ark_api_key = ""
     streamlit_ark_base_url = ""
     streamlit_ark_model = ""
+    streamlit_supabase_url = ""
+    streamlit_supabase_secret_key = ""
 AGENT_API_URL = (os.getenv("DISPATCH_AGENT_API_URL") or streamlit_agent_api_url).strip()
 AGENT_GATEWAY = AgentGateway(
     AGENT_API_URL,
@@ -81,6 +86,15 @@ ARK_AGENT = ArkAgent(
     os.getenv("ARK_API_KEY") or streamlit_ark_api_key,
     os.getenv("ARK_BASE_URL") or streamlit_ark_base_url,
     os.getenv("ARK_MODEL") or streamlit_ark_model,
+)
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or streamlit_supabase_url).strip()
+SUPABASE_SECRET_KEY = (
+    os.getenv("SUPABASE_SECRET_KEY") or streamlit_supabase_secret_key
+).strip()
+SUPABASE_DB: Client | None = (
+    create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
+    if SUPABASE_URL and SUPABASE_SECRET_KEY
+    else None
 )
 CLEAR_DISPATCH_RECORDS_VERSION = "2026-07-25-clear-02"
 NETWORK_COMPONENT_PATH = Path(__file__).parent / "network_component"
@@ -182,6 +196,16 @@ def touch_agent(agent_id: str, level: str) -> None:
     if AGENT_GATEWAY:
         AGENT_GATEWAY.heartbeat(agent_id, level)
         return
+    if SUPABASE_DB:
+        SUPABASE_DB.table("agent_presence").upsert(
+            {
+                "agent_id": agent_id,
+                "level": level,
+                "last_seen": time.time(),
+            },
+            on_conflict="agent_id",
+        ).execute()
+        return
     with connect_db() as connection:
         connection.execute(
             """
@@ -197,6 +221,14 @@ def touch_agent(agent_id: str, level: str) -> None:
 def load_online_agents(max_age_seconds: int = 30) -> set[str]:
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.online_agents(max_age_seconds)
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("agent_presence")
+            .select("agent_id")
+            .gte("last_seen", time.time() - max_age_seconds)
+            .execute()
+        )
+        return {row["agent_id"] for row in (response.data or [])}
     with connect_db() as connection:
         rows = connection.execute(
             "SELECT agent_id FROM agent_presence WHERE last_seen>=?",
@@ -252,6 +284,35 @@ def send_message(
         f"{steps.replace(chr(10), '；')}。"
         "操作完成后立即回令。"
     )
+    if SUPABASE_DB:
+        if request_key:
+            existing = (
+                SUPABASE_DB.table("dispatch_messages")
+                .select("ticket_no")
+                .eq("request_key", request_key)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                return existing.data[0]["ticket_no"]
+        SUPABASE_DB.table("dispatch_messages").insert(
+            {
+                "id": uuid.uuid4().hex,
+                "created_at": time.time(),
+                "sender": sender,
+                "receiver": receiver,
+                "title": title,
+                "ticket_no": ticket_no,
+                "target_county": target_county,
+                "content": content,
+                "status": "已送达",
+                "request_key": request_key,
+                "dispatch_level": "province"
+                if sender == "黑龙江省调度中心"
+                else "city",
+            }
+        ).execute()
+        return ticket_no
     with connect_db() as connection:
         if request_key:
             existing = connection.execute(
@@ -287,6 +348,14 @@ def acknowledge_message(message_id: str) -> None:
     if AGENT_GATEWAY:
         AGENT_GATEWAY.acknowledge(message_id)
         return
+    if SUPABASE_DB:
+        (
+            SUPABASE_DB.table("dispatch_messages")
+            .update({"status": "已签收", "acknowledged_at": time.time()})
+            .eq("id", message_id)
+            .execute()
+        )
+        return
     with connect_db() as connection:
         connection.execute(
             "UPDATE dispatch_messages SET status='已签收', acknowledged_at=? WHERE id=?",
@@ -298,6 +367,31 @@ def acknowledge_message(message_id: str) -> None:
 def execute_message(message_id: str, executed_by: str) -> None:
     if AGENT_GATEWAY:
         AGENT_GATEWAY.execute(message_id, executed_by)
+        return
+    if SUPABASE_DB:
+        selected = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("ticket_no")
+            .eq("id", message_id)
+            .limit(1)
+            .execute()
+        )
+        if not selected.data:
+            return
+        now = time.time()
+        (
+            SUPABASE_DB.table("dispatch_messages")
+            .update(
+                {
+                    "status": "已执行",
+                    "acknowledged_at": now,
+                    "executed_at": now,
+                    "executed_by": executed_by,
+                }
+            )
+            .eq("ticket_no", selected.data[0]["ticket_no"])
+            .execute()
+        )
         return
     with connect_db() as connection:
         ticket_row = connection.execute(
@@ -329,6 +423,41 @@ def forward_message_to_county(message: sqlite3.Row) -> None:
         f"{county}调度员",
         1,
     )
+    if SUPABASE_DB:
+        forward_key = f"forward:{message['id']}"
+        existing = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("id")
+            .eq("request_key", forward_key)
+            .limit(1)
+            .execute()
+        )
+        if not existing.data:
+            SUPABASE_DB.table("dispatch_messages").insert(
+                {
+                    "id": uuid.uuid4().hex,
+                    "created_at": time.time(),
+                    "sender": city_center,
+                    "receiver": county_agent_id(city_name, county),
+                    "title": message["title"],
+                    "ticket_no": message["ticket_no"],
+                    "target_county": county,
+                    "content": forwarded_content,
+                    "status": "已送达",
+                    "request_key": forward_key,
+                    "parent_message_id": message["id"],
+                    "root_message_id": message.get("root_message_id")
+                    or message["id"],
+                    "dispatch_level": "city",
+                }
+            ).execute()
+        (
+            SUPABASE_DB.table("dispatch_messages")
+            .update({"status": "已转发", "acknowledged_at": time.time()})
+            .eq("id", message["id"])
+            .execute()
+        )
+        return
     with connect_db() as connection:
         connection.execute(
             """
@@ -358,6 +487,14 @@ def forward_message_to_county(message: sqlite3.Row) -> None:
 def load_messages() -> list[sqlite3.Row]:
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.list_tickets()
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -370,6 +507,15 @@ def load_messages() -> list[sqlite3.Row]:
 def load_messages_for(receiver: str) -> list[sqlite3.Row]:
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.list_tickets(receiver=receiver)
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("*")
+            .eq("receiver", receiver)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -388,6 +534,15 @@ def load_city_messages(city_name: str) -> list[sqlite3.Row]:
     city_center = f"{city_name}调度中心"
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.list_tickets(sender_or_receiver=city_center)
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("*")
+            .or_(f"receiver.eq.{city_center},sender.eq.{city_center}")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
     connection = connect_db()
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -414,6 +569,21 @@ def load_today_dispatch_stats() -> tuple[int, str]:
         total = len(rows)
         delivered = sum(
             1 for row in rows
+            if row["status"] in {"已送达", "已签收", "已转发", "已执行"}
+        )
+    elif SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("dispatch_messages")
+            .select("status")
+            .eq("sender", "黑龙江省调度中心")
+            .gte("created_at", day_start)
+            .execute()
+        )
+        rows = response.data or []
+        total = len(rows)
+        delivered = sum(
+            1
+            for row in rows
             if row["status"] in {"已送达", "已签收", "已转发", "已执行"}
         )
     else:
