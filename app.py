@@ -247,6 +247,24 @@ def format_beijing_time(timestamp: float, pattern: str = "%m-%d %H:%M:%S") -> st
     return beijing_datetime(timestamp).strftime(pattern)
 
 
+def message_field(message: sqlite3.Row | dict, key: str, default=None):
+    """Read optional fields from both SQLite rows and Supabase dictionaries."""
+    if isinstance(message, dict):
+        return message.get(key, default)
+    return message[key] if key in message.keys() else default
+
+
+def dispatch_origin(message: sqlite3.Row | dict) -> tuple[str, str]:
+    """Classify a record by its root task, not merely its immediate sender."""
+    sender = message_field(message, "sender", "")
+    parent_message_id = message_field(message, "parent_message_id")
+    if sender == "黑龙江省调度中心":
+        return "province", "省级下发"
+    if parent_message_id:
+        return "province", "省级下发链路"
+    return "city", "市级自主下发"
+
+
 def send_message(
     target_county: str,
     title: str,
@@ -1321,8 +1339,8 @@ today_command_count, today_delivery_text = load_today_dispatch_stats()
 recent_dispatches = [
     {
         "title": row["title"],
-        "origin": "省级下发" if row["sender"] == "黑龙江省调度中心" else "市级自主下发",
-        "method": "province" if row["sender"] == "黑龙江省调度中心" else "city",
+        "origin": dispatch_origin(row)[1],
+        "method": dispatch_origin(row)[0],
         "city": (
             row["sender"].removesuffix("调度中心")
             if row["sender"] != "黑龙江省调度中心"
@@ -1537,7 +1555,7 @@ html = dedent(
     function renderRecent(){
       const box=document.getElementById("recentMessages");
       if(!filteredMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">没有符合筛选条件的调度指令</div>';return}
-      box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.origin==="省级下发"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}</div></div>`).join("");
+      box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.method==="province"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}</div></div>`).join("");
       box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=filteredMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
       box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
     }
