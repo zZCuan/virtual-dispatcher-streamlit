@@ -1764,6 +1764,8 @@ html = dedent(
     .cnode{border-color:#9dcfc2;background:#fff}.cnode span{background:#fff;color:#007b63;border:1px solid #9dcfc2}.cnode small{color:#547b71}.cnode.onlineNode span{background:#008f70!important;color:#fff!important;border-color:#008f70}.cnode.active{border:2px solid #00a779!important;box-shadow:0 5px 16px rgba(0,143,112,.2);opacity:1}.cnode.active span{box-shadow:0 0 0 2px #fff,0 0 0 3px #00a779}.cnode.offline.focusCenter span{background:#fff!important;color:#007b63!important}
     .knode>span{border-color:#7fbcae;background:#fff}.knode.onlineNode>span{background:#00a779!important;border-color:#00856b;box-shadow:0 0 5px #44c7a5}.knode.selected>span{width:11px;height:11px;border:2px solid #00a779!important;box-shadow:0 0 0 2px #fff,0 0 0 3px #00a779}.knode.selected:not(.onlineNode)>span{background:#fff!important}.knode.selected small{color:#17604f;font-weight:700}
     .knode small,.knode.selected small{color:#466f65}.olabel{background:#fff;border-color:#b9d8d0;color:#65837c}
+    .countyGroupLabel{position:absolute;z-index:2;transform:translate(-50%,-50%);padding:3px 7px;border:1px solid #c9dfd9;border-radius:10px;background:rgba(255,255,255,.9);color:#66837c;font-size:8px;white-space:nowrap;pointer-events:none;box-shadow:0 2px 6px rgba(25,83,70,.05)}
+    .countyGroupLabel.active{z-index:7;border-color:#58bca2;background:#e8f7f2;color:#00745e;font-weight:700;box-shadow:0 3px 10px rgba(0,127,102,.14)}
     .scene .orbit,.scene .province,.scene .cnode,.scene .knode,.scene .line{transition:left .55s ease,top .55s ease,opacity .4s ease,transform .55s ease,width .55s ease,height .55s ease}
     .focusHint{position:absolute;z-index:8;top:1px;left:50%;transform:translateX(-50%);padding:5px 13px;border-radius:16px;background:#e7f5f1;border:1px solid #b9dcd3;color:#267061;font-size:8px;opacity:0;transition:.35s;pointer-events:none}
     .scene.focused .focusHint{opacity:1}.scene.focused .citylabel,.scene.focused .countylabel{display:none}.scene.focused .outer{width:74%;height:72%;opacity:.22}.scene.focused .middle{width:60%;height:58%;opacity:.7}.scene.focused .inner{width:31%;opacity:.85}
@@ -1849,6 +1851,20 @@ html = dedent(
         const n=document.createElement("button");n.className=`cnode dynamic ${armedKey===`city:${i}`?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""} ${c.online?"onlineNode":"offline"}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name}调度智能体 · ${c.online?"在线":"离线"} · ${c.counties.length}个区县`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
       });
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
+      if(!focused){
+        let groupStart=0;
+        cities.forEach((c,ci)=>{
+          const midpoint=groupStart+(c.counties.length-1)/2;
+          const gp=ellipse(midpoint,total,38.5,31.5);
+          const group=document.createElement("div");
+          const groupSelected=armedKey===`city:${ci}`||armedKey.startsWith(`county:${ci}:`);
+          group.className=`countyGroupLabel dynamic ${groupSelected?"active":""}`;
+          group.style.cssText=`left:${gp.x}%;top:${gp.y}%`;
+          group.textContent=`${c.name.replace(/市$|地区$/,"")}辖区县`;
+          scene.appendChild(group);
+          groupStart+=c.counties.length
+        })
+      }
       cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
         let p,countyOnline=(c.online_counties||[]).includes(name);
         if(focused){
