@@ -1830,6 +1830,13 @@ html = dedent(
     function showGlobalProcessing(title,detail){document.getElementById("globalProcessingTitle").textContent=title;document.getElementById("globalProcessingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("globalProcessing").classList.add("show")}
     function raiseFonts(){}
     function ellipse(i,n,rx,ry,cx=50,cy=50,offset=-Math.PI/2){const a=i/n*Math.PI*2+offset;return{x:cx+Math.cos(a)*rx,y:cy+Math.sin(a)*ry,a}}
+    function groupedEllipse(cityIndex,nodeIndex,nodeCount,rx,ry){
+      const centerAngle=cityIndex/cities.length*Math.PI*2-Math.PI/2;
+      const sectorSpan=Math.PI*2/cities.length*.76;
+      const offset=nodeCount<=1?0:(nodeIndex/(nodeCount-1)-.5)*sectorSpan;
+      const a=centerAngle+offset;
+      return{x:50+Math.cos(a)*rx,y:50+Math.sin(a)*ry,a}
+    }
     function circlePoint(i,n,radiusPx,cx=54,cy=50){const scene=document.getElementById("scene"),a=i/n*Math.PI*2-Math.PI/2;return{x:cx+Math.cos(a)*radiusPx/scene.clientWidth*100,y:cy+Math.sin(a)*radiusPx/scene.clientHeight*100,a}}
     function connect(x1,y1,x2,y2,hot,kind){const scene=document.getElementById("scene"),dx=(x2-x1)*scene.clientWidth/100,dy=(y2-y1)*scene.clientHeight/100,e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x1}%;top:${y1}%;width:${Math.hypot(dx,dy)}px;transform:rotate(${Math.atan2(dy,dx)}rad)`;return e}
     function render(){
@@ -1850,36 +1857,31 @@ html = dedent(
         if(!focused||i===active){const sx=focused?16:50,sy=50;scene.appendChild(connect(sx,sy,p.x,p.y,i===active,`dynamic ${focused?"superiorLine":""} ${c.online?"":"offlineLine"}`))}
         const n=document.createElement("button");n.className=`cnode dynamic ${armedKey===`city:${i}`?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""} ${c.online?"onlineNode":"offline"}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name}调度智能体 · ${c.online?"在线":"离线"} · ${c.counties.length}个区县`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
       });
-      const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
       if(!focused){
-        let groupStart=0;
         cities.forEach((c,ci)=>{
-          const midpoint=groupStart+(c.counties.length-1)/2;
-          const gp=ellipse(midpoint,total,38.5,31.5);
+          const gp=ellipse(ci,cities.length,38.5,31.5);
           const group=document.createElement("div");
           const groupSelected=armedKey===`city:${ci}`||armedKey.startsWith(`county:${ci}:`);
           group.className=`countyGroupLabel dynamic ${groupSelected?"active":""}`;
           group.style.cssText=`left:${gp.x}%;top:${gp.y}%`;
-          group.textContent=`${c.name.replace(/市$|地区$/,"")}辖区县`;
-          scene.appendChild(group);
-          groupStart+=c.counties.length
+          group.textContent=`${c.name} · ${c.counties.length}个区县`;
+          scene.appendChild(group)
         })
       }
       cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
         let p,countyOnline=(c.online_counties||[]).includes(name);
         if(focused){
-          if(ci!==active){k++;return}
+          if(ci!==active)return;
           p=circlePoint(countyIndex,c.counties.length,focusRadius,center.x,center.y);
           const selectedLink=name===selected;
           scene.appendChild(connect(center.x,center.y,p.x,p.y,selectedLink,`dynamic subordinateLine ${selectedLink?"":"inactiveLink"} ${countyOnline?"":`offlineLine ${selectedLink?"":"silentOffline"}`}`));
         }else{
-          p=ellipse(k,total,45.5,38);
+          p=groupedEllipse(ci,countyIndex,c.counties.length,45.5,38);
           if(countyIndex===Math.floor(c.counties.length/2)){
             const cityPoint=ellipse(ci,cities.length,28.5,24.5);
             scene.appendChild(connect(cityPoint.x,cityPoint.y,p.x,p.y,false,`dynamic branchLine ${c.online?"":"offlineLine"}`))
           }
         }
-        k++;
         const countyKey=`county:${ci}:${name}`;
         const verticalLabel=focused&&Math.abs(Math.sin(p.a))>.68;
         const verticalClass=verticalLabel?(Math.sin(p.a)<0?"labelTop":"labelBottom"):"";
