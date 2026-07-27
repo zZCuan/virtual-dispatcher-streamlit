@@ -1105,7 +1105,13 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         "__AGENT_STATE__",
         f"市级智能体：{city_agent_state['status']} · {city_agent_state['detail']}",
     )
-    result = network_component(html=html, height=930, key="harbin_dashboard", default=None)
+    result = network_component(
+        html=html,
+        height=930,
+        render_nonce=st.session_state.get("city_dashboard_render_nonce", 0),
+        key="harbin_dashboard",
+        default=None,
+    )
     if isinstance(result, dict):
         nonce = result.get("nonce")
         if nonce != st.session_state.get("harbin_action_nonce"):
@@ -1117,6 +1123,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                 st.query_params.clear()
                 st.rerun()
             elif action == "refresh":
+                st.session_state["city_dashboard_render_nonce"] = (
+                    st.session_state.get("city_dashboard_render_nonce", 0) + 1
+                )
                 st.rerun()
             elif action in {"ack", "forward"}:
                 message = next((row for row in rows if row["id"] == result.get("id")), None)
@@ -1236,7 +1245,13 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         "__AGENT_STATE__",
         f"区县智能体：{county_agent_state['status']} · {county_agent_state['detail']}",
     )
-    result = network_component(html=html, height=930, key="county_dashboard", default=None)
+    result = network_component(
+        html=html,
+        height=930,
+        render_nonce=st.session_state.get("county_dashboard_render_nonce", 0),
+        key="county_dashboard",
+        default=None,
+    )
     if isinstance(result, dict):
         nonce = result.get("nonce")
         if nonce != st.session_state.get("county_action_nonce"):
@@ -1247,6 +1262,9 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
                     st.session_state.pop(key, None)
                 st.rerun()
             if action == "refresh":
+                st.session_state["county_dashboard_render_nonce"] = (
+                    st.session_state.get("county_dashboard_render_nonce", 0) + 1
+                )
                 st.rerun()
             message = next((row for row in rows if row["id"] == result.get("id")), None)
             if message is not None and action in {"ack", "execute"}:
@@ -1918,6 +1936,7 @@ html = dedent(
 network_selection = network_component(
     html=html,
     height=862,
+    render_nonce=st.session_state.get("province_dashboard_render_nonce", 0),
     key="province_network_topology",
     default=None,
 )
@@ -1951,6 +1970,9 @@ if isinstance(network_selection, dict):
             st.session_state["open_clear_dispatch_dialog"] = True
             st.rerun()
         if network_selection.get("action") == "refresh":
+            st.session_state["province_dashboard_render_nonce"] = (
+                st.session_state.get("province_dashboard_render_nonce", 0) + 1
+            )
             st.rerun()
         selected_city = network_selection.get("city")
         selected_county = network_selection.get("county")
