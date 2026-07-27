@@ -192,6 +192,23 @@ def connect_db() -> sqlite3.Connection:
     return connection
 
 
+def clear_all_dispatch_messages() -> None:
+    """Clear command history while preserving accounts, presence, and configuration."""
+    if AGENT_GATEWAY:
+        raise RuntimeError("当前已启用独立智能体网关，请通过网关管理端清空指令。")
+    if SUPABASE_DB:
+        (
+            SUPABASE_DB.table("dispatch_messages")
+            .delete()
+            .neq("id", "__never_matches__")
+            .execute()
+        )
+        return
+    with connect_db() as connection:
+        connection.execute("DELETE FROM dispatch_messages")
+        connection.commit()
+
+
 def touch_agent(agent_id: str, level: str) -> None:
     if AGENT_GATEWAY:
         AGENT_GATEWAY.heartbeat(agent_id, level)
@@ -1346,6 +1363,29 @@ def render_operation_ticket_dialog() -> None:
         st.rerun()
 
 
+@st.dialog("清空测试指令", width="small")
+def render_clear_dispatch_dialog() -> None:
+    st.warning("此操作将删除省、市、区县三级页面中的全部操作票和指令历史。")
+    st.caption("账号、地区配置、在线心跳和模型配置不会被删除。")
+    confirm = st.checkbox("我确认清空全部测试指令", key="confirm_clear_dispatch")
+    cancel_col, clear_col = st.columns(2)
+    with cancel_col:
+        if st.button("取消", use_container_width=True):
+            st.session_state["open_clear_dispatch_dialog"] = False
+            st.rerun()
+    with clear_col:
+        if st.button(
+            "确认清空",
+            type="primary",
+            use_container_width=True,
+            disabled=not confirm,
+        ):
+            clear_all_dispatch_messages()
+            st.session_state["open_clear_dispatch_dialog"] = False
+            st.session_state["clear_dispatch_success"] = "全部测试指令已清空。"
+            st.rerun()
+
+
 CITIES = [
     {"name": "哈尔滨市", "short": "哈", "load": "12.8 GW", "status": "正常",
      "counties": ["道里区", "南岗区", "道外区", "平房区", "松北区", "香坊区", "呼兰区", "阿城区", "双城区", "依兰县", "方正县", "宾县", "巴彦县", "木兰县", "通河县", "延寿县", "尚志市", "五常市"]},
@@ -1480,8 +1520,12 @@ st.markdown(
 
 if st.session_state.get("open_operation_ticket_dialog", False):
     render_operation_ticket_dialog()
+if st.session_state.get("open_clear_dispatch_dialog", False):
+    render_clear_dispatch_dialog()
 if dispatch_success := st.session_state.pop("dispatch_success", None):
     st.toast(dispatch_success, icon="✅")
+if clear_success := st.session_state.pop("clear_dispatch_success", None):
+    st.toast(clear_success, icon="✅")
 
 online_agents = load_online_agents()
 for city in CITIES:
@@ -1618,7 +1662,7 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
@@ -1644,6 +1688,7 @@ html = dedent(
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
     function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
     function requestOperationTicket(){window.parent.postMessage({type:"networkTarget",action:"openTicket",city:cities[active].name,county:selected,nonce:Date.now()},"*")}
+    function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
     function raiseFonts(){}
     function ellipse(i,n,rx,ry,cx=50,cy=50,offset=-Math.PI/2){const a=i/n*Math.PI*2+offset;return{x:cx+Math.cos(a)*rx,y:cy+Math.sin(a)*ry,a}}
     function circlePoint(i,n,radiusPx,cx=54,cy=50){const scene=document.getElementById("scene"),a=i/n*Math.PI*2-Math.PI/2;return{x:cx+Math.cos(a)*radiusPx/scene.clientWidth*100,y:cy+Math.sin(a)*radiusPx/scene.clientHeight*100,a}}
@@ -1781,6 +1826,9 @@ if isinstance(network_selection, dict):
         st.session_state["processed_network_selection"] = selection_nonce
         if network_selection.get("action") == "openTicket":
             st.session_state["open_operation_ticket_dialog"] = True
+            st.rerun()
+        if network_selection.get("action") == "clearCommands":
+            st.session_state["open_clear_dispatch_dialog"] = True
             st.rerun()
         if network_selection.get("action") == "refresh":
             st.rerun()
