@@ -333,6 +333,8 @@ def run_agent_cycle(
     agent_id: str,
     level: str,
     messages: list[sqlite3.Row | dict],
+    *,
+    persist: bool = True,
 ) -> dict:
     """Run one idempotent agent cycle for the currently open account."""
     state_key = f"agent_state:{agent_id}"
@@ -348,7 +350,8 @@ def run_agent_cycle(
             "detail": f"待闭环 {open_count} 条 · 已完成 {executed_count} 条",
             "updated_at": time.time(),
         }
-        save_meta_json(state_key, state)
+        if persist:
+            save_meta_json(state_key, state)
         return state
 
     if not messages:
@@ -357,7 +360,8 @@ def run_agent_cycle(
             "detail": "当前没有待处理操作票",
             "updated_at": time.time(),
         }
-        save_meta_json(state_key, state)
+        if persist:
+            save_meta_json(state_key, state)
         return state
 
     latest = messages[0]
@@ -370,7 +374,8 @@ def run_agent_cycle(
         "detail": f"{latest['ticket_no']} · {latest['status']}",
         "updated_at": time.time(),
     }
-    save_meta_json(state_key, state)
+    if persist:
+        save_meta_json(state_key, state)
     return state
 
 
@@ -709,11 +714,24 @@ def load_city_messages(city_name: str) -> list[sqlite3.Row]:
     return rows
 
 
-def load_today_dispatch_stats() -> tuple[int, str]:
+def load_today_dispatch_stats(
+    prefetched_rows: list[sqlite3.Row | dict] | None = None,
+) -> tuple[int, str]:
     """Return today's real province-originated instruction count and delivery summary."""
     now = beijing_datetime()
     day_start = datetime.combine(now.date(), datetime_time.min, BEIJING_TZ).timestamp()
-    if AGENT_GATEWAY:
+    if prefetched_rows is not None:
+        rows = [
+            row for row in prefetched_rows
+            if row["sender"] == "黑龙江省调度中心"
+            and row["created_at"] >= day_start
+        ]
+        total = len(rows)
+        delivered = sum(
+            1 for row in rows
+            if row["status"] in {"已送达", "已签收", "已转发", "已执行"}
+        )
+    elif AGENT_GATEWAY:
         rows = [
             row for row in AGENT_GATEWAY.list_tickets()
             if row["sender"] == "黑龙江省调度中心" and row["created_at"] >= day_start
@@ -986,16 +1004,9 @@ def render_harbin_workspace() -> None:
 
 def render_city_dashboard(city_name: str, counties: list[str], username: str) -> None:
     city_center = f"{city_name}调度中心"
-    touch_agent(city_center, "city")
     @st.fragment(run_every="20s")
     def keep_city_heartbeat() -> None:
         touch_agent(city_center, "city")
-        fresh_rows = load_city_messages(city_name)
-        run_agent_cycle(
-            username,
-            "city",
-            [row for row in fresh_rows if row["receiver"] == city_center],
-        )
     keep_city_heartbeat()
     if success_message := st.session_state.pop("city_dispatch_success", None):
         st.toast(success_message, icon="✅")
@@ -1005,7 +1016,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
     ]
     rows = load_city_messages(city_name)
     city_inbox = [row for row in rows if row["receiver"] == city_center]
-    city_agent_state = run_agent_cycle(username, "city", city_inbox)
+    city_agent_state = run_agent_cycle(
+        username, "city", city_inbox, persist=False
+    )
     message_data = [
         {
             "id": row["id"], "title": row["title"], "sender": row["sender"],
@@ -1179,18 +1192,14 @@ def render_county_workspace(county: str) -> None:
 
 def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     agent_id = county_agent_id(city_name, county)
-    touch_agent(agent_id, "county")
     @st.fragment(run_every="20s")
     def keep_county_dashboard_heartbeat() -> None:
         touch_agent(agent_id, "county")
-        run_agent_cycle(
-            username,
-            "county",
-            load_messages_for(agent_id),
-        )
     keep_county_dashboard_heartbeat()
     rows = load_messages_for(agent_id)
-    county_agent_state = run_agent_cycle(username, "county", rows)
+    county_agent_state = run_agent_cycle(
+        username, "county", rows, persist=False
+    )
     messages = [
         {
             "id": row["id"], "title": row["title"], "ticket": row["ticket_no"],
@@ -1582,15 +1591,9 @@ if role == "county":
     )
     st.stop()
 
-touch_agent("黑龙江省调度中心", "province")
 @st.fragment(run_every="20s")
 def keep_province_heartbeat() -> None:
     touch_agent("黑龙江省调度中心", "province")
-    run_agent_cycle(
-        "hlj_province",
-        "province",
-        load_messages(),
-    )
 keep_province_heartbeat()
 
 st.markdown(
@@ -1623,12 +1626,15 @@ for city in CITIES:
     ]
 online_city_count = sum(1 for city in CITIES if city["online"])
 
-today_command_count, today_delivery_text = load_today_dispatch_stats()
 all_dispatch_messages = load_messages()
+today_command_count, today_delivery_text = load_today_dispatch_stats(
+    all_dispatch_messages
+)
 province_agent_state = run_agent_cycle(
     "hlj_province",
     "province",
     all_dispatch_messages,
+    persist=False,
 )
 recent_dispatches = [
     {
