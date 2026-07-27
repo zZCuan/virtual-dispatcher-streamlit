@@ -1816,7 +1816,13 @@ html = dedent(
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
     let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__,armedKey=__ARMED_KEY__;
-    function syncParentTarget(city,county,focus,key){window.parent.postMessage({type:"networkTarget",action:"nodeSelect",city,county,focus,key,nonce:Date.now()},"*")}
+    try{
+      const saved=JSON.parse(sessionStorage.getItem("provinceNetworkSelection")||"null");
+      if(saved&&Number.isInteger(saved.active)&&cities[saved.active]&&cities[saved.active].counties.includes(saved.selected)){
+        active=saved.active;selected=saved.selected;focused=Boolean(saved.focused);armedKey=String(saved.armedKey||"")
+      }
+    }catch(_){}
+    function saveNetworkSelection(){sessionStorage.setItem("provinceNetworkSelection",JSON.stringify({active,selected,focused,armedKey}))}
     function requestOperationTicket(){openModal()}
     function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
     function showGlobalProcessing(title,detail){document.getElementById("globalProcessingTitle").textContent=title;document.getElementById("globalProcessingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("globalProcessing").classList.add("show")}
@@ -1864,9 +1870,9 @@ html = dedent(
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度智能体</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度智能体</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
       document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;raiseFonts();
     }
-    function selectCity(i){const key=`city:${i}`,secondClick=armedKey===key;active=i;selected=cities[i].counties[0];armedKey=key;focused=secondClick;render();syncParentTarget(cities[i].name,selected,focused,key)}
-    function selectCounty(ci,name){const key=`county:${ci}:${name}`,secondClick=armedKey===key;active=ci;selected=name;armedKey=key;focused=secondClick;render();syncParentTarget(cities[ci].name,name,focused,key)}
-    function selectProvince(){focused=false;armedKey="";render();window.parent.postMessage({type:"networkTarget",action:"provinceSelect",nonce:Date.now()},"*")}
+    function selectCity(i){const key=`city:${i}`,secondClick=armedKey===key;active=i;selected=cities[i].counties[0];armedKey=key;focused=secondClick;saveNetworkSelection();render()}
+    function selectCounty(ci,name){const key=`county:${ci}:${name}`,secondClick=armedKey===key;active=ci;selected=name;armedKey=key;focused=secondClick;saveNetworkSelection();render()}
+    function selectProvince(){focused=false;armedKey="";sessionStorage.removeItem("provinceNetworkSelection");render()}
     function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
     let speakingIndex=-1,filteredMessages=[...recentMessages];
     function toggleFilters(){document.getElementById("filterGrid").classList.toggle("show")}
