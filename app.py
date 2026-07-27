@@ -265,6 +265,115 @@ def dispatch_origin(message: sqlite3.Row | dict) -> tuple[str, str]:
     return "city", "市级自主下发"
 
 
+def load_meta_json(key: str) -> dict | None:
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("app_meta")
+            .select("value")
+            .eq("key", key)
+            .limit(1)
+            .execute()
+        )
+        if not response.data:
+            return None
+        try:
+            return json.loads(response.data[0]["value"])
+        except (TypeError, ValueError):
+            return None
+    with connect_db() as connection:
+        row = connection.execute(
+            "SELECT value FROM app_meta WHERE key=?", (key,)
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def save_meta_json(key: str, value: dict) -> None:
+    encoded = json.dumps(value, ensure_ascii=False)
+    if SUPABASE_DB:
+        SUPABASE_DB.table("app_meta").upsert(
+            {"key": key, "value": encoded}, on_conflict="key"
+        ).execute()
+        return
+    with connect_db() as connection:
+        connection.execute(
+            """
+            INSERT INTO app_meta(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            (key, encoded),
+        )
+        connection.commit()
+
+
+def run_agent_cycle(
+    agent_id: str,
+    level: str,
+    messages: list[sqlite3.Row | dict],
+) -> dict:
+    """Run one idempotent agent cycle for the currently open account."""
+    state_key = f"agent_state:{agent_id}"
+    if level == "province":
+        open_count = sum(
+            1 for row in messages if row["status"] != "已执行"
+        )
+        executed_count = sum(
+            1 for row in messages if row["status"] == "已执行"
+        )
+        state = {
+            "status": "正在全局汇总" if messages else "正在监听全省任务",
+            "detail": f"待闭环 {open_count} 条 · 已完成 {executed_count} 条",
+            "updated_at": time.time(),
+        }
+        save_meta_json(state_key, state)
+        return state
+
+    if not messages:
+        state = {
+            "status": "正在监听上级任务",
+            "detail": "当前没有待处理操作票",
+            "updated_at": time.time(),
+        }
+        save_meta_json(state_key, state)
+        return state
+
+    latest = messages[0]
+    analysis_key = f"agent_analysis:{level}:{latest['id']}"
+    analysis = load_meta_json(analysis_key)
+    if analysis is None:
+        handoff = ARK_AGENT.coordinate_handoff(
+            level=level,
+            title=latest["title"],
+            task_text=latest["content"],
+            sender=latest["sender"],
+            receiver=latest["receiver"],
+            target_region=latest["target_county"],
+        )
+        analysis = {
+            "analysis": handoff.analysis,
+            "prepared_task": handoff.delegated_task,
+            "used_ai": handoff.used_ai,
+            "prepared_at": time.time(),
+        }
+        save_meta_json(analysis_key, analysis)
+
+    state = {
+        "status": (
+            "已完成承接分析"
+            if level == "city"
+            else "已完成操作票解析"
+        ),
+        "detail": f"{latest['ticket_no']} · {latest['status']}",
+        "updated_at": time.time(),
+    }
+    save_meta_json(state_key, state)
+    return state
+
+
 def send_message(
     target_county: str,
     title: str,
@@ -827,6 +936,17 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         county for county in counties if county_agent_id(city_name, county) in online_agents
     ]
     rows = load_city_messages(city_name)
+    city_inbox = [row for row in rows if row["receiver"] == city_center]
+    city_agent_state = run_agent_cycle(username, "city", city_inbox)
+    @st.fragment(run_every="10s")
+    def run_city_agent_worker() -> None:
+        fresh_rows = load_city_messages(city_name)
+        run_agent_cycle(
+            username,
+            "city",
+            [row for row in fresh_rows if row["receiver"] == city_center],
+        )
+    run_city_agent_worker()
     message_data = [
         {
             "id": row["id"], "title": row["title"], "sender": row["sender"],
@@ -869,7 +989,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
           <aside class="panel"><div class="ph"><span>区县调度</span><small>__COUNTY_ONLINE__ / __COUNTY_TOTAL__ 在线</small></div><div class="countyList" id="countyList"></div></aside>
           <main class="panel"><div class="ph"><span>调度操作票记录</span><div class="recordTabs"><button id="incomingTab" class="active" onclick="setRecordType('incoming')">省调接收</button><button id="outgoingTab" onclick="setRecordType('outgoing')">市调下发</button></div></div><div class="localFilters"><label>时间范围<select id="cityTimeFilter" onchange="renderInbox()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="cityStatusFilter" onchange="renderInbox()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已转发</option><option>已执行</option></select></label><span class="filterCount" id="cityFilterCount"></span></div><div class="inbox" id="inbox"></div></main>
           <aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级指令源</small><b>黑龙江省调度智能体</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>当前接收</small><b>哈尔滨市调度智能体</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>转发目标</small><b id="chainCounty">南岗区智能体</b></div></div></div><div class="health">● 加密通信正常<br>● 自动接收已开启<br>● 语音服务可用</div></aside>
-        </section><footer class="foot"><span>● 市级知识底座同步正常</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
+        </section><footer class="foot"><span>● __AGENT_STATE__</span><span>通信延迟 26ms · STREAMLIT DEMO</span></footer></div>
         <div class="back" id="modal"><section class="modal"><div class="mh"><div><b>向下属区县新建操作票</b><small style="display:block;color:#708a84;margin-top:4px">发布地区按当前选中区县自动填充</small></div><button class="close" onclick="closeModal()">×</button></div><div class="field"><label>接收区县</label><select id="targetCounty"></select></div><div class="field"><label>调度任务</label><input id="taskTitle" value="区域配网运行方式调整"></div><div class="field"><label>操作步骤</label><textarea id="taskSteps">第一项，核对当前线路运行状态。
 第二项，执行指定开关操作。
 第三项，复核并向哈尔滨市调回令。</textarea></div><button class="send" onclick="sendDownstream()">确认并下发操作票</button></section></div>
@@ -907,6 +1027,10 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         "__COUNTY_TOTAL__", str(len(counties))
     ).replace("__UNREAD__", str(unread)
     ).replace("__FORWARDED__", str(forwarded))
+    html = html.replace(
+        "__AGENT_STATE__",
+        f"市级智能体：{city_agent_state['status']} · {city_agent_state['detail']}",
+    )
     result = network_component(html=html, height=930, key="harbin_dashboard", default=None)
     if isinstance(result, dict):
         nonce = result.get("nonce")
@@ -1000,6 +1124,15 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         touch_agent(agent_id, "county")
     keep_county_dashboard_heartbeat()
     rows = load_messages_for(agent_id)
+    county_agent_state = run_agent_cycle(username, "county", rows)
+    @st.fragment(run_every="10s")
+    def run_county_agent_worker() -> None:
+        run_agent_cycle(
+            username,
+            "county",
+            load_messages_for(agent_id),
+        )
+    run_county_agent_worker()
     messages = [
         {
             "id": row["id"], "title": row["title"], "ticket": row["ticket_no"],
@@ -1021,7 +1154,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         .brand b{font-size:22px}.title small{font-size:11px}.title b{font-size:19px}.stat span{font-size:11px}.stat b{font-size:21px}.stat em{font-size:10px}.ph{font-size:14px}.ph small{font-size:10px}.countyFilters{height:51px;padding:6px 10px;display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;border-bottom:1px solid var(--l);background:#f7fbfa}.countyFilters label{color:var(--m);font-size:8px}.countyFilters select{display:block;width:100%;height:27px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:var(--t);font-size:8px}.countyFilterCount{padding-bottom:6px;color:var(--g);font-size:8px;white-space:nowrap}.countyFilters+.inbox{height:650px}
         </style></head><body><div class="app"><header class="top"><div class="brand"><b>龙江电网 · __COUNTY__虚拟配网调度中心</b><small>COUNTY VIRTUAL DISPATCH NETWORK · 当前账号：nangang_county（区县级执行权限）</small></div><div style="display:flex;gap:8px"><button class="logout" onclick="post({action:'refresh'})">刷新数据</button><button class="logout" onclick="post({action:'logout'})">退出账号</button></div></header>
         <section class="bar"><div class="title"><small>区县态势</small><b>__COUNTY__调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>1</b><em>在线</em></div><div class="stat"><span>待执行</span><b>__PENDING__</b><em>操作票</em></div><div class="stat"><span>已执行</span><b>__EXECUTED__</b><em>完成回令</em></div></div></section>
-        <section class="work"><aside class="panel"><div class="ph"><span>区县智能体</span><small>1 / 1 在线</small></div><div class="assetList"><div class="agentProfile"><div class="agentAvatar">南岗</div><b>__COUNTY__调度智能体</b><small>账号：nangang_county</small><span class="agentOnline">● 当前在线</span></div><div class="sectionTitle">核心能力</div><div class="capability"><span>调度指令接收</span><i>正常</i></div><div class="capability"><span>操作票解析</span><i>正常</i></div><div class="capability"><span>AI 语音播报</span><i>可用</i></div><div class="capability"><span>执行回令</span><i>畅通</i></div><div class="sectionTitle">运行信息</div><div class="runtime">知识底座：已同步<br>在线判定窗口：30 秒<br>链路加密：已启用<br>权限级别：区县级执行</div></div></aside><main class="panel"><div class="ph"><span>市调下发操作票</span><small>历史记录筛选</small></div><div class="countyFilters"><label>时间范围<select id="countyTimeFilter" onchange="render()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="countyStatusFilter" onchange="render()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已执行</option></select></label><span class="countyFilterCount" id="countyFilterCount"></span></div><div class="inbox" id="inbox"></div></main><aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级源头</small><b>黑龙江省调度智能体</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>市级转发</small><b>哈尔滨市调度智能体</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>当前接收</small><b>__COUNTY__调度智能体</b></div></div></div><div class="health">● 区县链路在线<br>● 操作票自动接收<br>● 语音服务可用<br>● 执行回令通道正常</div></aside></section><footer class="foot"><span>● __COUNTY__知识底座同步正常</span><span>北京时间 · STREAMLIT DEMO</span></footer></div>
+        <section class="work"><aside class="panel"><div class="ph"><span>区县智能体</span><small>1 / 1 在线</small></div><div class="assetList"><div class="agentProfile"><div class="agentAvatar">南岗</div><b>__COUNTY__调度智能体</b><small>账号：nangang_county</small><span class="agentOnline">● 当前在线</span></div><div class="sectionTitle">核心能力</div><div class="capability"><span>调度指令接收</span><i>正常</i></div><div class="capability"><span>操作票解析</span><i>正常</i></div><div class="capability"><span>AI 语音播报</span><i>可用</i></div><div class="capability"><span>执行回令</span><i>畅通</i></div><div class="sectionTitle">运行信息</div><div class="runtime">知识底座：已同步<br>在线判定窗口：30 秒<br>链路加密：已启用<br>权限级别：区县级执行</div></div></aside><main class="panel"><div class="ph"><span>市调下发操作票</span><small>历史记录筛选</small></div><div class="countyFilters"><label>时间范围<select id="countyTimeFilter" onchange="render()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="countyStatusFilter" onchange="render()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已执行</option></select></label><span class="countyFilterCount" id="countyFilterCount"></span></div><div class="inbox" id="inbox"></div></main><aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级源头</small><b>黑龙江省调度智能体</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>市级转发</small><b>哈尔滨市调度智能体</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>当前接收</small><b>__COUNTY__调度智能体</b></div></div></div><div class="health">● 区县链路在线<br>● 操作票自动接收<br>● 语音服务可用<br>● 执行回令通道正常</div></aside></section><footer class="foot"><span>● __AGENT_STATE__</span><span>北京时间 · STREAMLIT DEMO</span></footer></div>
         <script>const messages=__MESSAGES__;let speaking=-1,visibleMessages=[...messages];const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}function cutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}function render(){const box=document.getElementById("inbox"),timeValue=document.getElementById("countyTimeFilter").value,statusValue=document.getElementById("countyStatusFilter").value,start=cutoff(timeValue);visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;const pending=visibleMessages.filter(m=>m.status==="已送达").length;box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="post({action:'ack',id:'${m.id}'})">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="post({action:'execute',id:'${m.id}'})">执行完成并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')}function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}render();</script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("nangang_county", username).replace(
@@ -1030,6 +1163,10 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     ).replace("__COUNTY__", county).replace(
         "__MESSAGES__", json.dumps(messages, ensure_ascii=False)
     ).replace("__PENDING__", str(pending)).replace("__EXECUTED__", str(executed))
+    html = html.replace(
+        "__AGENT_STATE__",
+        f"区县智能体：{county_agent_state['status']} · {county_agent_state['detail']}",
+    )
     result = network_component(html=html, height=930, key="county_dashboard", default=None)
     if isinstance(result, dict):
         nonce = result.get("nonce")
@@ -1348,6 +1485,11 @@ touch_agent("黑龙江省调度中心", "province")
 @st.fragment(run_every="20s")
 def keep_province_heartbeat() -> None:
     touch_agent("黑龙江省调度中心", "province")
+    run_agent_cycle(
+        "hlj_province",
+        "province",
+        load_messages(),
+    )
 keep_province_heartbeat()
 
 st.markdown(
@@ -1377,6 +1519,12 @@ for city in CITIES:
 online_city_count = sum(1 for city in CITIES if city["online"])
 
 today_command_count, today_delivery_text = load_today_dispatch_stats()
+all_dispatch_messages = load_messages()
+province_agent_state = run_agent_cycle(
+    "hlj_province",
+    "province",
+    all_dispatch_messages,
+)
 recent_dispatches = [
     {
         "title": row["title"],
@@ -1396,7 +1544,7 @@ recent_dispatches = [
         "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
         "executedBy": row["executed_by"] or "",
     }
-    for row in load_messages()
+    for row in all_dispatch_messages
 ]
 focused_city_name = st.session_state.get("network_focus_city")
 focused_city_index = next(
@@ -1501,7 +1649,7 @@ html = dedent(
         <div class="network"><div class="nt"><b>智能体通信网络</b><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div></div>
         <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>全量调度指令</span><span style="color:#008f70;font-size:8px">支持组合筛选</span></div><div class="auditFilters"><button class="filterToggle" onclick="toggleFilters()">⌕ 筛选历史指令</button><div class="filterGrid" id="filterGrid"><label>下发方式<select id="methodFilter" onchange="applyFilters()"><option value="">全部方式</option><option value="province">省级下发</option><option value="city">市级自主下发</option></select></label><label>执行地市<select id="cityFilter" onchange="cityFilterChanged()"><option value="">全部地市</option></select></label><label>执行区县<select id="countyFilter" onchange="applyFilters()"><option value="">全部区县</option></select></label><label>时间范围<select id="timeFilter" onchange="applyFilters()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="statusFilter" onchange="applyFilters()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已转发</option><option>已执行</option></select></label><label>筛选操作<button class="filterToggle" style="margin-top:3px" onclick="resetFilters()">重置条件</button></label></div><div class="filterSummary" id="filterSummary"></div></div><div id="recentMessages"></div></aside>
       </section>
-      <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>省级知识底座同步正常　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
+      <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>__AGENT_STATE__　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
     <div class="back" id="back" onclick="if(event.target===this)closeModal()"><section class="modal"><div class="mh"><div><b>新建调度指令</b><small>操作内容可编辑，确认后生成语音并下发</small></div><button class="close" onclick="closeModal()">×</button></div><div class="steps"><b>1</b><span>编辑操作票</span><i></i><b>2</b><span>确认接收节点</span><i></i><b>3</b><span>语音下发</span></div><div class="editfield"><label>调度任务名称</label><input id="taskName" value="哈西甲乙线由运行转检修"></div><div class="ticket"><div class="tickethead"><span>操作单位</span><b>哈尔滨供电公司</b><span>票号</span><b>HLJ-2026-0725-018</b></div><ol><li><em>01</em><input id="step1" value="拉开哈西甲乙线 101 开关"></li><li><em>02</em><input id="step2" value="拉开哈西甲乙线 1011 刀闸"></li><li><em>03</em><input id="step3" value="拉开哈西甲乙线 1012 刀闸"></li></ol></div><div class="target"><span>下发至</span><b id="targetcity">哈尔滨市调度中心</b><span>目标节点</span><b id="targetcounty">南岗区</b></div><div class="actions"><button onclick="speakEdited()">试听 AI 语音</button><button class="send" onclick="sendTicket()">生成语音并下发　→</button></div></section></div>
     <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
@@ -1635,6 +1783,9 @@ html = dedent(
     "__TODAY_COUNT__", str(today_command_count)
 ).replace("__TODAY_STATUS__", today_delivery_text).replace(
     "__CITY_ONLINE__", str(online_city_count)
+).replace(
+    "__AGENT_STATE__",
+    f"省级智能体：{province_agent_state['status']} · {province_agent_state['detail']}",
 ).replace(
     "__ACTIVE_INDEX__", str(focused_city_index)
 ).replace(

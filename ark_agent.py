@@ -134,7 +134,11 @@ class ArkAgent:
         target_region: str,
     ) -> AgentHandoff:
         """Create a traceable superior-agent analysis and downstream task."""
-        level_name = "省级" if level == "province" else "市级"
+        level_name = {
+            "province": "省级",
+            "city": "市级",
+            "county": "区县级",
+        }.get(level, "调度")
         fallback_analysis = (
             f"{level_name}智能体已核验任务层级、接收范围与目标区域，"
             f"确认由{receiver}承接并继续闭环处理。"
