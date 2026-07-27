@@ -1709,6 +1709,28 @@ try:
     )
 except (OSError, json.JSONDecodeError):
     heilongjiang_geojson = {"type": "FeatureCollection", "features": []}
+city_geo_codes = [
+    "230100", "230200", "231000", "230800", "230600", "230300", "230500",
+    "230700", "230900", "230400", "231100", "231200", "232700",
+]
+county_geo_centers: dict[str, list[dict[str, object]]] = {}
+for city_geo_code in city_geo_codes:
+    try:
+        city_geo = json.loads(
+            Path(__file__).with_name(".mapdata").joinpath(f"{city_geo_code}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        county_geo_centers[city_geo_code] = [
+            {
+                "name": feature["properties"]["name"],
+                "center": feature["properties"].get("center")
+                or feature["properties"].get("centroid"),
+            }
+            for feature in city_geo.get("features", [])
+        ]
+    except (OSError, json.JSONDecodeError, KeyError):
+        county_geo_centers[city_geo_code] = []
 
 html = dedent(
     r"""
@@ -1737,7 +1759,7 @@ html = dedent(
     .network{position:relative;border:1px solid var(--line);background:radial-gradient(circle,rgba(17,62,89,.32),rgba(4,15,27,.3) 58%,rgba(4,13,24,.7));overflow:hidden}.nt{position:absolute;z-index:12;top:10px;left:17px;right:17px;display:flex;justify-content:space-between;align-items:center;color:#7190a6;font-size:8px}.networkHeading{display:flex;align-items:center;gap:12px}.networkHeading>b{color:#b8d6e7;font-size:11px}.viewSwitch{display:flex;padding:2px;border:1px solid #b9d8d0;border-radius:15px;background:#f7fbfa}.viewSwitch button{min-width:52px;height:22px;padding:0 9px;border:0;border-radius:12px;background:transparent;color:#66837c;font-size:8px;cursor:pointer}.viewSwitch button.active{background:#008f70;color:#fff;box-shadow:0 2px 7px rgba(0,127,102,.2)}.legend i{display:inline-block;width:6px;height:6px;margin:0 4px 0 9px;border-radius:50%;background:#24b3e3}.legend i:first-child{background:white;box-shadow:0 0 8px var(--cyan)}.legend i:last-of-type{border:1px solid #557d91;background:transparent}.legend .flowKey{display:inline-flex;align-items:center;gap:4px;margin-left:12px}.legend .flowKey:before{content:"";width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:#00a779;box-shadow:0 0 5px #00a779}.legend .flowKey.probe:before{background:#e5a632;box-shadow:0 0 5px #e5a632}
     .scene{position:absolute;inset:43px 19px 15px}.orbit{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none}.outer{width:91%;height:76%;border:1px dashed #3b728666}.middle{width:57%;height:49%;border:1px solid #278eb54d}.inner{width:29%;aspect-ratio:1;border:1px solid #35d3e63d}
     .scene.viewHidden{opacity:0;visibility:hidden;pointer-events:none}.mapScene{position:absolute;inset:43px 19px 15px;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .25s ease}.mapScene.active{opacity:1;visibility:visible;pointer-events:auto}.mapCanvas{width:100%;height:100%;overflow:visible}.mapRegion{fill:#eaf5f1;stroke:#8bc8b8;stroke-width:1;transition:fill .2s,opacity .25s,stroke-width .2s}.mapRegion:hover,.mapRegion.selected{fill:#d5eee6;stroke:#008f70;stroke-width:1.7}.mapScene.focusedMap .mapRegion:not(.selected){opacity:.22}.mapLink{fill:none;stroke:#78bfae;stroke-width:1.3;stroke-dasharray:5 6;opacity:.7;animation:mapFlow 2.2s linear infinite}.mapLink.hot{stroke:#008f70;stroke-width:2;stroke-dasharray:8 5;opacity:1}@keyframes mapFlow{to{stroke-dashoffset:-22}}.mapHub circle{fill:#00856b;stroke:#fff;stroke-width:4;filter:drop-shadow(0 6px 9px rgba(0,100,80,.25))}.mapHub text{fill:#fff;font-weight:700;text-anchor:middle}.mapCity{cursor:pointer}.mapCity circle{fill:#fff;stroke:#45a98f;stroke-width:2;filter:drop-shadow(0 2px 4px rgba(0,100,80,.18))}.mapCity.online circle{fill:#009875}.mapCity.online text{fill:#fff}.mapCity.selected circle{stroke:#f0aa34;stroke-width:4}.mapCity text{fill:#17604f;font-size:10px;font-weight:700;text-anchor:middle;pointer-events:none}.mapCityName{font-size:9px!important;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}.mapCounty circle{fill:#fff;stroke:#008f70;stroke-width:1.5}.mapCounty.online circle{fill:#00a779}.mapCounty text{fill:#315f54;font-size:8px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}.mapNote{position:absolute;left:14px;bottom:12px;padding:6px 10px;border:1px solid #c5ded8;border-radius:15px;background:rgba(255,255,255,.9);color:#547b71;font-size:8px}.mapEmpty{position:absolute;inset:0;display:grid;place-items:center;color:#78918b;font-size:11px}
-    .sweep{position:absolute;width:52%;aspect-ratio:1;left:50%;top:50%;transform-origin:0 0;background:conic-gradient(from 10deg,transparent 0 315deg,rgba(38,184,211,.08) 345deg,transparent 360deg);animation:sweep 12s linear infinite}@keyframes sweep{to{transform:rotate(360deg)}}
+    .mapCountyLeader{stroke:#7dbdad;stroke-width:1;opacity:.72}.mapCountyLabel{fill:#fff;stroke:#b8d9d1;stroke-width:1;filter:drop-shadow(0 2px 3px rgba(0,80,65,.09))}.mapBack{cursor:pointer}.mapBack rect{fill:#fff;stroke:#98cdbf;rx:14}.mapBack text{fill:#00745e;font-size:9px;font-weight:700;text-anchor:middle}.sweep{position:absolute;width:52%;aspect-ratio:1;left:50%;top:50%;transform-origin:0 0;background:conic-gradient(from 10deg,transparent 0 315deg,rgba(38,184,211,.08) 345deg,transparent 360deg);animation:sweep 12s linear infinite}@keyframes sweep{to{transform:rotate(360deg)}}
     .line{position:absolute;height:1px;transform-origin:left center;background:linear-gradient(90deg,#24cde988,#24cde915);z-index:0;overflow:visible}.line:after,.line:before{content:"";position:absolute;left:0;top:-5px;width:10px;height:10px;border:2px solid #fff;border-radius:50%;background:#00a779;box-shadow:0 0 10px #00a779;animation:packet 2.4s linear infinite}.line:before{animation-delay:-1.2s}@keyframes packet{from{left:0;opacity:.12}15%{opacity:1}85%{opacity:1}to{left:calc(100% - 10px);opacity:.12}}.line.hot{height:2px;background:linear-gradient(90deg,#b5f6ff,#23cde7);box-shadow:0 0 7px #28d9f0;animation:glow 1.3s ease-in-out infinite alternate}.line.hot:after,.line.hot:before{animation-duration:1.35s}.line.hot:before{animation-delay:-.675s}@keyframes glow{from{opacity:.45}to{opacity:1}}.line.branchLine{opacity:.62}.line.offlineLine{height:1px;background:repeating-linear-gradient(90deg,#aab9b5 0 5px,transparent 5px 10px);box-shadow:none;opacity:.72}.line.offlineLine:after{display:block;width:9px;height:9px;top:-4px;background:#e5a632;box-shadow:0 0 8px #e5a632;animation-duration:3.4s}.line.offlineLine:before{display:none}
     .province{position:absolute;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);width:125px;height:125px;border:1px solid #55e5f6;border-radius:50%;background:radial-gradient(circle at 35% 30%,#154d67,#071a2c 67%);box-shadow:0 0 22px #29d4e052,inset 0 0 25px #36d9e51c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}.picon{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(145deg,#38d3df,#167bc6);box-shadow:0 0 18px #2acbd6aa;font-size:12px;font-weight:900}.province b{font-size:10px}.province small{font-size:7px;color:#72a0b5}.ring{position:absolute;inset:-10px;border:1px solid #37bdd555;border-radius:50%;animation:pulse 2s ease-out infinite}@keyframes pulse{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.18);opacity:0}}
     .cnode{position:absolute;z-index:4;transform:translate(-50%,-50%);width:58px;height:58px;border:1px solid #2b6c8a;border-radius:50%;background:#0c2639;display:grid;place-items:center;padding:5px;cursor:pointer;color:inherit}.cnode span{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:#133e56;color:#8fcfe3;font-size:10px}.cnode small{font-size:7px;color:#688da2}.cnode.active{z-index:6;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,167,121,.12),0 0 18px #29cce766;transform:translate(-50%,-50%)}.cnode.active span{color:white;background:linear-gradient(145deg,#258fba,#21c9d4)}.cnode.offline{border-style:dashed;opacity:.58}.cnode.offline:after{content:"离线";position:absolute;top:48px;padding:1px 4px;border-radius:7px;background:#f4f6f5;color:#87938f;font-size:7px}
@@ -1805,7 +1827,7 @@ html = dedent(
       <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在刷新全域调度数据','正在同步三级智能体状态与共享任务库');window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
-        <div class="network"><div class="nt"><div class="networkHeading"><b>智能体通信网络</b><div class="viewSwitch"><button id="orbitViewBtn" onclick="setNetworkView('orbit')">轨道视图</button><button id="mapViewBtn" onclick="setNetworkView('map')">地图视图</button></div></div><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div><div class="mapScene" id="mapScene"><svg class="mapCanvas" id="mapCanvas" viewBox="0 0 900 620" role="img" aria-label="黑龙江省智能体地图网络"></svg><div class="mapNote">首次点击选择地市，再次点击展开所属区县；与轨道视图状态同步</div></div></div>
+        <div class="network"><div class="nt"><div class="networkHeading"><b>智能体通信网络</b><div class="viewSwitch"><button id="orbitViewBtn" onclick="setNetworkView('orbit')">轨道视图</button><button id="mapViewBtn" onclick="setNetworkView('map')">地图视图</button></div></div><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div><div class="mapScene" id="mapScene"><svg class="mapCanvas" id="mapCanvas" viewBox="0 0 900 620" role="img" aria-label="黑龙江省智能体地图网络"></svg><div class="mapNote">首次点击选择地市，再次点击聚焦行政区域并按真实地理位置展示区县</div></div></div>
         <aside class="panel right"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="route" id="route"></div><div class="sect"><span>全量调度指令</span><span style="color:#008f70;font-size:8px">支持组合筛选</span></div><div class="auditFilters"><button class="filterToggle" onclick="toggleFilters()">⌕ 筛选历史指令</button><div class="filterGrid" id="filterGrid"><label>下发方式<select id="methodFilter" onchange="applyFilters()"><option value="">全部方式</option><option value="province">省级下发</option><option value="city">市级自主下发</option></select></label><label>执行地市<select id="cityFilter" onchange="cityFilterChanged()"><option value="">全部地市</option></select></label><label>执行区县<select id="countyFilter" onchange="applyFilters()"><option value="">全部区县</option></select></label><label>时间范围<select id="timeFilter" onchange="applyFilters()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="statusFilter" onchange="applyFilters()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已转发</option><option>已执行</option></select></label><label>筛选操作<button class="filterToggle" style="margin-top:3px" onclick="resetFilters()">重置条件</button></label></div><div class="filterSummary" id="filterSummary"></div></div><div id="recentMessages"></div></aside>
       </section>
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>__AGENT_STATE__　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
@@ -1816,6 +1838,8 @@ html = dedent(
     <script>
     const cities=__CITIES__;
     const hljGeo=__HLJ_GEOJSON__;
+    const cityGeoCodes=__CITY_GEO_CODES__;
+    const countyGeoCenters=__COUNTY_GEO_CENTERS__;
     const recentMessages=__RECENT_MESSAGES__;
     const ticketTemplates=[
       {line:"哈西甲乙线",switchNo:"101",blade1:"1011",blade2:"1012"},
@@ -1914,33 +1938,66 @@ html = dedent(
       const mapScene=document.getElementById("mapScene");
       mapScene.classList.toggle("focusedMap",focused);
       if(!features.length){svg.innerHTML='<text x="450" y="310" text-anchor="middle" fill="#78918b">地图底图暂未加载</text>';return}
+      const featureByCode=new Map(features.map(f=>[String(f.properties&&f.properties.adcode),f]));
+      const cityFeatures=cityGeoCodes.map(code=>featureByCode.get(code)).filter(Boolean);
+      const activeFeature=featureByCode.get(cityGeoCodes[active]);
+      const boundsFeatures=focused&&activeFeature?[activeFeature]:features;
       const points=[];
-      features.forEach(f=>geoRings(f.geometry).forEach(r=>r.forEach(p=>points.push(p))));
+      boundsFeatures.forEach(f=>geoRings(f.geometry).forEach(r=>r.forEach(p=>points.push(p))));
       const minLon=Math.min(...points.map(p=>p[0])),maxLon=Math.max(...points.map(p=>p[0]));
       const minLat=Math.min(...points.map(p=>p[1])),maxLat=Math.max(...points.map(p=>p[1]));
       const left=205,right=865,top=38,bottom=588,scale=Math.min((right-left)/(maxLon-minLon),(bottom-top)/(maxLat-minLat));
       const usedW=(maxLon-minLon)*scale,usedH=(maxLat-minLat)*scale,ox=left+(right-left-usedW)/2,oy=top+(bottom-top-usedH)/2;
       const project=p=>[ox+(p[0]-minLon)*scale,oy+(maxLat-p[1])*scale];
       const pathFor=f=>geoRings(f.geometry).map(r=>r.map((p,i)=>`${i?"L":"M"}${project(p)[0].toFixed(1)},${project(p)[1].toFixed(1)}`).join("")+"Z").join("");
-      const cityPoints=features.slice(0,cities.length).map((f,i)=>{
-        const raw=f.properties&&(f.properties.center||f.properties.centroid);
+      const cityPoints=cityGeoCodes.map(code=>featureByCode.get(code)).map((f,i)=>{
+        const raw=f&&f.properties&&(f.properties.center||f.properties.centroid);
         return raw?project(raw):[450,310+i*2]
       });
       const hub=[105,315],parts=[];
-      cityPoints.forEach((p,i)=>parts.push(`<path class="mapLink ${i===active?"hot":""}" d="M${hub[0]},${hub[1]} Q${(hub[0]+p[0])/2},${p[1]-28} ${p[0]},${p[1]}"/>`));
-      features.slice(0,cities.length).forEach((f,i)=>parts.push(`<path class="mapRegion ${i===active&&(focused||armedKey.startsWith("city:")||armedKey.startsWith("county:"))?"selected":""}" data-map-city="${i}" d="${pathFor(f)}"/>`));
+      if(focused){
+        parts.push(`<path class="mapLink hot" d="M${hub[0]},${hub[1]} Q155,${cityPoints[active][1]-28} ${cityPoints[active][0]},${cityPoints[active][1]}"/>`)
+      }else{
+        cityPoints.forEach((p,i)=>parts.push(`<path class="mapLink ${i===active?"hot":""}" d="M${hub[0]},${hub[1]} Q${(hub[0]+p[0])/2},${p[1]-28} ${p[0]},${p[1]}"/>`))
+      }
+      cityGeoCodes.forEach((code,i)=>{
+        const f=featureByCode.get(code);
+        if(f&&(!focused||i===active))parts.push(`<path class="mapRegion ${i===active&&(focused||armedKey.startsWith("city:")||armedKey.startsWith("county:"))?"selected":""}" data-map-city="${i}" d="${pathFor(f)}"/>`)
+      });
       parts.push(`<g class="mapHub" onclick="selectProvince()" style="cursor:pointer"><circle cx="${hub[0]}" cy="${hub[1]}" r="48"/><text x="${hub[0]}" y="${hub[1]-3}" font-size="14">龙江</text><text x="${hub[0]}" y="${hub[1]+17}" font-size="9">省级智能体</text></g>`);
       cityPoints.forEach((p,i)=>{
+        if(focused&&i!==active)return;
         const c=cities[i],selectedCity=active===i&&(armedKey===`city:${i}`||focused||armedKey.startsWith(`county:${i}:`));
         parts.push(`<g class="mapCity ${c.online?"online":""} ${selectedCity?"selected":""}" data-map-city="${i}"><circle cx="${p[0]}" cy="${p[1]}" r="${selectedCity?14:11}"/><text x="${p[0]}" y="${p[1]+3}">${escapeHtml(c.short)}</text><text class="mapCityName" x="${p[0]+16}" y="${p[1]-12}" text-anchor="start">${escapeHtml(c.name)}</text></g>`)
       });
       if(focused&&cityPoints[active]){
-        const c=cities[active],cp=cityPoints[active],count=c.counties.length;
-        c.counties.forEach((name,i)=>{
-          const ring=i<12?52:78,index=i<12?i:i-12,total=i<12?Math.min(12,count):Math.max(1,count-12),a=index/total*Math.PI*2-Math.PI/2;
-          const x=cp[0]+Math.cos(a)*ring,y=cp[1]+Math.sin(a)*ring,online=(c.online_counties||[]).includes(name),isSelected=name===selected;
-          parts.push(`<g class="mapCounty ${online?"online":""}" data-map-county="${i}" style="cursor:pointer"><circle cx="${x}" cy="${y}" r="${isSelected?6:4}"/><text x="${x+(Math.cos(a)>=0?8:-8)}" y="${y+3}" text-anchor="${Math.cos(a)>=0?"start":"end"}">${escapeHtml(name)}</text></g>`)
-        })
+        const c=cities[active],cp=cityPoints[active],source=countyGeoCenters[cityGeoCodes[active]]||[];
+        const aliases={"梅里斯区":"梅里斯达斡尔族区","杜尔伯特县":"杜尔伯特蒙古族自治县"};
+        const manual={"松岭区":[124.196,51.991],"新林区":[124.397,51.674],"呼中区":[123.600,52.033]};
+        const countyPoints=c.counties.map((name,i)=>{
+          const match=source.find(item=>item.name===name||item.name===aliases[name]);
+          const raw=(match&&match.center)||manual[name]||(activeFeature.properties.center||activeFeature.properties.centroid);
+          const p=project(raw);return{name,index:i,x:p[0],y:p[1],online:(c.online_counties||[]).includes(name)}
+        });
+        const leftLabels=countyPoints.filter(p=>p.x<cp[0]).sort((a,b)=>a.y-b.y),rightLabels=countyPoints.filter(p=>p.x>=cp[0]).sort((a,b)=>a.y-b.y);
+        function placeLabels(items,isLeft){
+          const minY=72,maxY=555,gap=Math.min(24,(maxY-minY)/Math.max(1,items.length-1));
+          items.forEach((p,j)=>{
+            const ly=Math.max(minY,Math.min(maxY,p.y));
+            p.ly=j?Math.max(ly,items[j-1].ly+gap):ly
+          });
+          if(items.length&&items[items.length-1].ly>maxY){
+            const shift=items[items.length-1].ly-maxY;items.forEach(p=>p.ly-=shift)
+          }
+          items.forEach(p=>{p.lx=p.x+(isLeft?-13:13)})
+        }
+        placeLabels(leftLabels,true);placeLabels(rightLabels,false);
+        countyPoints.forEach(p=>{
+          const isLeft=p.x<cp[0],labelW=Math.max(44,p.name.length*9+14),labelX=isLeft?p.lx-labelW:p.lx,labelY=p.ly-10,isSelected=p.name===selected;
+          parts.push(`<line class="mapCountyLeader" x1="${p.x}" y1="${p.y}" x2="${p.lx}" y2="${p.ly}"/>`);
+          parts.push(`<g class="mapCounty ${p.online?"online":""}" data-map-county="${p.index}" style="cursor:pointer"><circle cx="${p.x}" cy="${p.y}" r="${isSelected?6:4}"/><rect class="mapCountyLabel" x="${labelX}" y="${labelY}" width="${labelW}" height="20" rx="8"/><text x="${isLeft?p.lx-6:p.lx+6}" y="${p.ly+3}" text-anchor="${isLeft?"end":"start"}">${escapeHtml(p.name)}</text></g>`)
+        });
+        parts.push(`<g class="mapBack" onclick="selectProvince()"><rect x="22" y="560" width="112" height="28"/><text x="78" y="578">返回全省地图</text></g>`)
       }
       svg.innerHTML=parts.join("");
       svg.querySelectorAll("[data-map-city]").forEach(node=>node.addEventListener("click",event=>{event.stopPropagation();selectCity(Number(node.dataset.mapCity))}));
@@ -2091,6 +2148,10 @@ html = dedent(
     """
 ).replace("__CITIES__", json.dumps(CITIES, ensure_ascii=False)).replace(
     "__HLJ_GEOJSON__", json.dumps(heilongjiang_geojson, ensure_ascii=False)
+).replace(
+    "__CITY_GEO_CODES__", json.dumps(city_geo_codes, ensure_ascii=False)
+).replace(
+    "__COUNTY_GEO_CENTERS__", json.dumps(county_geo_centers, ensure_ascii=False)
 ).replace(
     "__RECENT_MESSAGES__", json.dumps(recent_dispatches, ensure_ascii=False)
 ).replace(
