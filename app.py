@@ -1689,13 +1689,18 @@ recent_dispatches = [
     for row in all_dispatch_messages
 ]
 focused_city_name = st.session_state.get("network_focus_city")
+selected_city_name = (
+    st.session_state.get("network_selected_city")
+    or focused_city_name
+)
 focused_city_index = next(
-    (index for index, city in enumerate(CITIES) if city["name"] == focused_city_name),
+    (index for index, city in enumerate(CITIES) if city["name"] == selected_city_name),
     0,
 )
-focused_county_name = st.session_state.get(
-    "network_focus_county",
-    "南岗区" if focused_city_index == 0 else CITIES[focused_city_index]["counties"][0],
+focused_county_name = (
+    st.session_state.get("network_selected_county")
+    or st.session_state.get("network_focus_county")
+    or ("南岗区" if focused_city_index == 0 else CITIES[focused_city_index]["counties"][0])
 )
 network_is_focused = focused_city_name is not None
 
@@ -1756,8 +1761,8 @@ html = dedent(
     .line{background:linear-gradient(90deg,#00a779aa,#00a77922)}.line.hot{background:linear-gradient(90deg,#007f66,#22bd92);box-shadow:0 0 6px rgba(0,167,121,.42)}
     .province{border-color:#00a779;background:radial-gradient(circle at 35% 30%,#23b98e,#00735d 70%);box-shadow:0 8px 28px rgba(0,112,88,.25);color:#fff}
     .province small{color:#d8f2eb}.picon{background:#fff;color:#007f66;box-shadow:none}.ring{border-color:#32bb97}
-    .cnode{border-color:#9dcfc2;background:#fff}.cnode span{background:#e4f5f0;color:#007b63}.cnode small{color:#547b71}.cnode.active{border-color:#00a779;box-shadow:0 5px 16px rgba(0,143,112,.2)}.cnode.active span{background:#008f70}
-    .knode>span{border-color:#7fbcae;background:#fff}.knode.group>span{background:#00a779;border-color:#00856b;box-shadow:0 0 5px #44c7a5}.knode.selected>span{background:#f4b63d;border-color:#fff;box-shadow:0 0 9px #dc9d28}
+    .cnode{border-color:#9dcfc2;background:#fff}.cnode span{background:#fff;color:#007b63;border:1px solid #9dcfc2}.cnode small{color:#547b71}.cnode.onlineNode span{background:#008f70!important;color:#fff!important;border-color:#008f70}.cnode.active{border:2px solid #00a779!important;box-shadow:0 5px 16px rgba(0,143,112,.2);opacity:1}.cnode.active span{box-shadow:0 0 0 2px #fff,0 0 0 3px #00a779}.cnode.offline.focusCenter span{background:#fff!important;color:#007b63!important}
+    .knode>span{border-color:#7fbcae;background:#fff}.knode.onlineNode>span{background:#00a779!important;border-color:#00856b;box-shadow:0 0 5px #44c7a5}.knode.selected>span{width:11px;height:11px;border:2px solid #00a779!important;box-shadow:0 0 0 2px #fff,0 0 0 3px #00a779}.knode.selected:not(.onlineNode)>span{background:#fff!important}.knode.selected small{color:#17604f;font-weight:700}
     .knode small,.knode.selected small{color:#466f65}.olabel{background:#fff;border-color:#b9d8d0;color:#65837c}
     .scene .orbit,.scene .province,.scene .cnode,.scene .knode,.scene .line{transition:left .55s ease,top .55s ease,opacity .4s ease,transform .55s ease,width .55s ease,height .55s ease}
     .focusHint{position:absolute;z-index:8;top:1px;left:50%;transform:translateX(-50%);padding:5px 13px;border-radius:16px;background:#e7f5f1;border:1px solid #b9dcd3;color:#267061;font-size:8px;opacity:0;transition:.35s;pointer-events:none}
@@ -1810,8 +1815,8 @@ html = dedent(
       {line:"双宝乙线",switchNo:"801",blade1:"8011",blade2:"8012"},
       {line:"伊美甲线",switchNo:"901",blade1:"9011",blade2:"9012"}
     ];
-    let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__;
-    function syncParentTarget(city,county){window.parent.postMessage({type:"networkTarget",city,county,nonce:Date.now()},"*")}
+    let active=__ACTIVE_INDEX__,selected=__SELECTED_COUNTY__,focused=__NETWORK_FOCUSED__,armedKey=__ARMED_KEY__;
+    function syncParentTarget(city,county,focus,key){window.parent.postMessage({type:"networkTarget",action:"nodeSelect",city,county,focus,key,nonce:Date.now()},"*")}
     function requestOperationTicket(){openModal()}
     function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
     function showGlobalProcessing(title,detail){document.getElementById("globalProcessingTitle").textContent=title;document.getElementById("globalProcessingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("globalProcessing").classList.add("show")}
@@ -1820,7 +1825,7 @@ html = dedent(
     function circlePoint(i,n,radiusPx,cx=54,cy=50){const scene=document.getElementById("scene"),a=i/n*Math.PI*2-Math.PI/2;return{x:cx+Math.cos(a)*radiusPx/scene.clientWidth*100,y:cy+Math.sin(a)*radiusPx/scene.clientHeight*100,a}}
     function connect(x1,y1,x2,y2,hot,kind){const scene=document.getElementById("scene"),dx=(x2-x1)*scene.clientWidth/100,dy=(y2-y1)*scene.clientHeight/100,e=document.createElement("div");e.className="line "+(hot?"hot ":"")+kind;e.style.cssText=`left:${x1}%;top:${y1}%;width:${Math.hypot(dx,dy)}px;transform:rotate(${Math.atan2(dy,dx)}rad)`;return e}
     function render(){
-      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${i===active?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load"><i class="${c.online?"":"warn"}">${c.online?"● 在线":"● 离线"}</i></span></button>`).join("");
+      const list=document.getElementById("cities");list.innerHTML=cities.map((c,i)=>`<button class="cityrow ${armedKey===`city:${i}`?"active":""}" onclick="selectCity(${i})"><span class="avatar">${c.short}</span><span class="ci"><b>${c.name}</b><small>${c.counties.length} 个区县节点</small></span><span class="load"><i class="${c.online?"":"warn"}">${c.online?"● 在线":"● 离线"}</i></span></button>`).join("");
       const scene=document.getElementById("scene");scene.querySelectorAll(".dynamic").forEach(e=>e.remove());
       scene.classList.toggle("focused",focused);
       const province=scene.querySelector(".province");province.style.left=focused?"16%":"50%";province.style.top="50%";
@@ -1835,7 +1840,7 @@ html = dedent(
         const base=ellipse(i,cities.length,focused?43:28.5,focused?38:24.5);
         const p=focused?(i===active?center:{x:54+(base.x-50),y:50+(base.y-50)}):base;
         if(!focused||i===active){const sx=focused?16:50,sy=50;scene.appendChild(connect(sx,sy,p.x,p.y,i===active,`dynamic ${focused?"superiorLine":""} ${c.online?"":"offlineLine"}`))}
-        const n=document.createElement("button");n.className=`cnode dynamic ${i===active?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""} ${c.online?"":"offline"}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name}调度智能体 · ${c.online?"在线":"离线"} · ${c.counties.length}个区县`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i,true);scene.appendChild(n)
+        const n=document.createElement("button");n.className=`cnode dynamic ${armedKey===`city:${i}`?"active":""} ${focused&&i===active?"focusCenter":""} ${focused&&i!==active?"dimmed peer":""} ${c.online?"onlineNode":"offline"}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name}调度智能体 · ${c.online?"在线":"离线"} · ${c.counties.length}个区县`;n.innerHTML=`<span>${c.short}</span><small>${c.name.replace("市","")}${focused&&i!==active?" · 同级":""}</small>`;n.onclick=()=>selectCity(i);scene.appendChild(n)
       });
       const total=cities.reduce((s,c)=>s+c.counties.length,0);let k=0;
       cities.forEach((c,ci)=>c.counties.forEach((name,countyIndex)=>{
@@ -1853,13 +1858,15 @@ html = dedent(
           }
         }
         k++;
-        const n=document.createElement("button");n.className=`knode dynamic ${ci===active?"group":""} ${ci===active&&name===selected?"selected":""} ${focused?"focusCounty":""} ${countyOnline?"":"offline"} ${(focused?p.x>center.x+2:p.x>72)?"labelLeft":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name} / ${name}智能体 · 独立链路 · ${countyOnline?"在线":"离线"}`;n.innerHTML=`<span></span>${focused?`<small>${name}${countyOnline?"":" · 离线"}</small>`:""}`;n.onclick=()=>{active=ci;selected=name;focused=true;render();syncParentTarget(cities[ci].name,name)};scene.appendChild(n)
+        const countyKey=`county:${ci}:${name}`;
+        const n=document.createElement("button");n.className=`knode dynamic ${armedKey===countyKey?"selected":""} ${focused?"focusCounty":""} ${countyOnline?"onlineNode":"offline"} ${(focused?p.x>center.x+2:p.x>72)?"labelLeft":""}`;n.style.cssText=`left:${p.x}%;top:${p.y}%`;n.title=`${c.name} / ${name}智能体 · 独立链路 · ${countyOnline?"在线":"离线"}`;n.innerHTML=`<span></span>${focused?`<small>${name}${countyOnline?"":" · 离线"}</small>`:""}`;n.onclick=()=>selectCounty(ci,name);scene.appendChild(n)
       }));
       const c=cities[active];document.getElementById("route").innerHTML=`<div class="rnode"><span class="mini" style="background:#1d91b9">省</span><div><small>指令发起</small><b>黑龙江省调度智能体</b></div></div><div class="flow"><em>专线传输</em></div><div class="rnode"><span class="mini">${c.short}</span><div><small>当前接收</small><b>${c.name}调度智能体</b></div></div><div class="flow"><em>辖区独立链路</em></div><div class="rnode"><span class="mini">区</span><div><small>目标节点</small><b>${selected}智能体</b></div></div>`;
       document.getElementById("targetcity").textContent=c.name+"调度中心";document.getElementById("targetcounty").textContent=selected;raiseFonts();
     }
-    function selectCity(i,syncForm=false){active=i;selected=cities[i].counties[0];focused=true;render();if(syncForm)syncParentTarget(cities[i].name,selected)}
-    function selectProvince(){focused=false;render()}
+    function selectCity(i){const key=`city:${i}`,secondClick=armedKey===key;active=i;selected=cities[i].counties[0];armedKey=key;focused=secondClick;render();syncParentTarget(cities[i].name,selected,focused,key)}
+    function selectCounty(ci,name){const key=`county:${ci}:${name}`,secondClick=armedKey===key;active=ci;selected=name;armedKey=key;focused=secondClick;render();syncParentTarget(cities[ci].name,name,focused,key)}
+    function selectProvince(){focused=false;armedKey="";render();window.parent.postMessage({type:"networkTarget",action:"provinceSelect",nonce:Date.now()},"*")}
     function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
     let speakingIndex=-1,filteredMessages=[...recentMessages];
     function toggleFilters(){document.getElementById("filterGrid").classList.toggle("show")}
@@ -1946,6 +1953,9 @@ html = dedent(
     "__SELECTED_COUNTY__", json.dumps(focused_county_name, ensure_ascii=False)
 ).replace(
     "__NETWORK_FOCUSED__", "true" if network_is_focused else "false"
+).replace(
+    "__ARMED_KEY__",
+    json.dumps(st.session_state.get("network_armed_key", ""), ensure_ascii=False),
 )
 
 network_selection = network_component(
@@ -1990,6 +2000,16 @@ if isinstance(network_selection, dict):
                     st.session_state.get("province_dashboard_render_nonce", 0) + 1
                 )
             st.rerun()
+        if network_selection.get("action") == "provinceSelect":
+            for key in (
+                "network_focus_city",
+                "network_focus_county",
+                "network_selected_city",
+                "network_selected_county",
+                "network_armed_key",
+            ):
+                st.session_state.pop(key, None)
+            st.rerun()
         selected_city = network_selection.get("city")
         selected_county = network_selection.get("county")
         if (
@@ -1997,8 +2017,15 @@ if isinstance(network_selection, dict):
             and selected_county in province_targets[selected_city]["counties"]
         ):
             st.session_state["open_operation_ticket_dialog"] = False
-            st.session_state["pending_network_selection"] = {
-                "city": selected_city,
-                "county": selected_county,
-            }
+            st.session_state["province_target_city"] = selected_city
+            st.session_state[f"province_target_county_{selected_city}"] = selected_county
+            st.session_state["network_selected_city"] = selected_city
+            st.session_state["network_selected_county"] = selected_county
+            st.session_state["network_armed_key"] = network_selection.get("key", "")
+            if network_selection.get("focus"):
+                st.session_state["network_focus_city"] = selected_city
+                st.session_state["network_focus_county"] = selected_county
+            else:
+                st.session_state.pop("network_focus_city", None)
+                st.session_state.pop("network_focus_county", None)
             st.rerun()
