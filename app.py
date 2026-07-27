@@ -237,6 +237,16 @@ def touch_agent(agent_id: str, level: str) -> None:
         connection.commit()
 
 
+def touch_agent_if_due(agent_id: str, level: str, interval_seconds: int = 10) -> None:
+    """Keep frequent ticket polling from writing presence more often than required."""
+    state_key = f"heartbeat_last_sent:{agent_id}"
+    now = time.time()
+    if now - float(st.session_state.get(state_key, 0)) < interval_seconds:
+        return
+    touch_agent(agent_id, level)
+    st.session_state[state_key] = now
+
+
 def load_online_agents(max_age_seconds: int = 30) -> set[str]:
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.online_agents(max_age_seconds)
@@ -1004,9 +1014,9 @@ def render_harbin_workspace() -> None:
 
 def render_city_dashboard(city_name: str, counties: list[str], username: str) -> None:
     city_center = f"{city_name}调度中心"
-    @st.fragment(run_every="20s")
+    @st.fragment(run_every="10s")
     def keep_city_heartbeat() -> None:
-        touch_agent(city_center, "city")
+        touch_agent_if_due(city_center, "city")
     keep_city_heartbeat()
     if success_message := st.session_state.pop("city_dispatch_success", None):
         st.toast(success_message, icon="✅")
@@ -1082,6 +1092,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         function processMessage(action,id,county){if(action==="ack")startProcessing("市级智能体正在签收指令","正在校验操作票状态并登记签收记录");else startProcessing(`正在转发至${county}智能体`,"正在承接省级任务、细化区县操作步骤并写入共享任务库");post({action,id})}
         function sendDownstream(){const button=document.querySelector(".modal .send");if(button.disabled)return;button.disabled=true;button.textContent="正在下发…";const payload={action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value};closeModal();startProcessing(`正在下发至${payload.county}智能体`,"正在校验管辖范围、生成操作票并写入共享任务库");post(payload)}
         renderCounties();setRecordType(recordType);raiseFonts();
+        setInterval(()=>{if(!document.querySelector(".back.show,.processing.show"))post({action:"autoRefresh"})},5000);
         </script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("南岗区", counties[0]).replace(
@@ -1122,10 +1133,11 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                     st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.rerun()
-            elif action == "refresh":
-                st.session_state["city_dashboard_render_nonce"] = (
-                    st.session_state.get("city_dashboard_render_nonce", 0) + 1
-                )
+            elif action in {"refresh", "autoRefresh"}:
+                if action == "refresh":
+                    st.session_state["city_dashboard_render_nonce"] = (
+                        st.session_state.get("city_dashboard_render_nonce", 0) + 1
+                    )
                 st.rerun()
             elif action in {"ack", "forward"}:
                 message = next((row for row in rows if row["id"] == result.get("id")), None)
@@ -1201,9 +1213,9 @@ def render_county_workspace(county: str) -> None:
 
 def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     agent_id = county_agent_id(city_name, county)
-    @st.fragment(run_every="20s")
+    @st.fragment(run_every="10s")
     def keep_county_dashboard_heartbeat() -> None:
-        touch_agent(agent_id, "county")
+        touch_agent_if_due(agent_id, "county")
     keep_county_dashboard_heartbeat()
     rows = load_messages_for(agent_id)
     county_agent_state = run_agent_cycle(
@@ -1233,7 +1245,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         <section class="bar"><div class="title"><small>区县态势</small><b>__COUNTY__调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>1</b><em>在线</em></div><div class="stat"><span>待执行</span><b>__PENDING__</b><em>操作票</em></div><div class="stat"><span>已执行</span><b>__EXECUTED__</b><em>完成回令</em></div></div></section>
         <section class="work"><aside class="panel"><div class="ph"><span>区县智能体</span><small>1 / 1 在线</small></div><div class="assetList"><div class="agentProfile"><div class="agentAvatar">南岗</div><b>__COUNTY__调度智能体</b><small>账号：nangang_county</small><span class="agentOnline">● 当前在线</span></div><div class="sectionTitle">核心能力</div><div class="capability"><span>调度指令接收</span><i>正常</i></div><div class="capability"><span>操作票解析</span><i>正常</i></div><div class="capability"><span>AI 语音播报</span><i>可用</i></div><div class="capability"><span>执行回令</span><i>畅通</i></div><div class="sectionTitle">运行信息</div><div class="runtime">知识底座：已同步<br>在线判定窗口：30 秒<br>链路加密：已启用<br>权限级别：区县级执行</div></div></aside><main class="panel"><div class="ph"><span>市调下发操作票</span><small>历史记录筛选</small></div><div class="countyFilters"><label>时间范围<select id="countyTimeFilter" onchange="render()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="countyStatusFilter" onchange="render()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已执行</option></select></label><span class="countyFilterCount" id="countyFilterCount"></span></div><div class="inbox" id="inbox"></div></main><aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级源头</small><b>黑龙江省调度智能体</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>市级转发</small><b>哈尔滨市调度智能体</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>当前接收</small><b>__COUNTY__调度智能体</b></div></div></div><div class="health">● 区县链路在线<br>● 操作票自动接收<br>● 语音服务可用<br>● 执行回令通道正常</div></aside></section><footer class="foot"><span>● __AGENT_STATE__</span><span>北京时间 · STREAMLIT DEMO</span></footer></div>
         <div class="processing" id="processing"><section class="processingCard"><div class="processingSpinner"></div><b id="processingTitle">区县智能体正在处理操作票</b><p id="processingDetail">正在同步任务状态<br>请稍候，不要重复点击或关闭页面</p></section></div>
-        <script>const messages=__MESSAGES__;let speaking=-1,visibleMessages=[...messages];const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}function processMessage(action,id){if(action==="ack")startProcessing("区县智能体正在签收操作票","正在校验操作票状态并登记签收记录");else startProcessing("正在提交执行回令","正在登记执行时间、操作账号并向上级智能体反馈结果");post({action,id})}function cutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}function render(){const box=document.getElementById("inbox"),timeValue=document.getElementById("countyTimeFilter").value,statusValue=document.getElementById("countyStatusFilter").value,start=cutoff(timeValue);visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;const pending=visibleMessages.filter(m=>m.status==="已送达").length;box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="processMessage('execute','${m.id}')">执行完成并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')}function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}render();</script></body></html>
+        <script>const messages=__MESSAGES__;let speaking=-1,visibleMessages=[...messages];const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}function processMessage(action,id){if(action==="ack")startProcessing("区县智能体正在签收操作票","正在校验操作票状态并登记签收记录");else startProcessing("正在提交执行回令","正在登记执行时间、操作账号并向上级智能体反馈结果");post({action,id})}function cutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}function render(){const box=document.getElementById("inbox"),timeValue=document.getElementById("countyTimeFilter").value,statusValue=document.getElementById("countyStatusFilter").value,start=cutoff(timeValue);visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;const pending=visibleMessages.filter(m=>m.status==="已送达").length;box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="processMessage('execute','${m.id}')">执行完成并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')}function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}render();setInterval(()=>{if(!document.querySelector(".processing.show"))post({action:"autoRefresh"})},5000);</script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("nangang_county", username).replace(
         '<div class="agentAvatar">南岗</div>',
@@ -1261,10 +1273,11 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
                 for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
                     st.session_state.pop(key, None)
                 st.rerun()
-            if action == "refresh":
-                st.session_state["county_dashboard_render_nonce"] = (
-                    st.session_state.get("county_dashboard_render_nonce", 0) + 1
-                )
+            if action in {"refresh", "autoRefresh"}:
+                if action == "refresh":
+                    st.session_state["county_dashboard_render_nonce"] = (
+                        st.session_state.get("county_dashboard_render_nonce", 0) + 1
+                    )
                 st.rerun()
             message = next((row for row in rows if row["id"] == result.get("id")), None)
             if message is not None and action in {"ack", "execute"}:
@@ -1609,9 +1622,9 @@ if role == "county":
     )
     st.stop()
 
-@st.fragment(run_every="20s")
+@st.fragment(run_every="10s")
 def keep_province_heartbeat() -> None:
-    touch_agent("黑龙江省调度中心", "province")
+    touch_agent_if_due("黑龙江省调度中心", "province")
 keep_province_heartbeat()
 
 st.markdown(
@@ -1912,7 +1925,9 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value.trim(),steps=document.getElementById("operationContent").value.trim();if(!title||!steps){alert("请填写调度任务名称和指令内容");return}closeModal();showGlobalProcessing("省级智能体正在下发操作票",`正在校验${cities[active].name}管辖范围、分析任务并写入共享任务库`);window.parent.postMessage({type:"networkTarget",action:"provinceDispatch",city:cities[active].name,county:selected,title,steps,nonce:Date.now()},"*")}
-    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);render();initFilters();raiseFonts();
+    setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);
+    setInterval(()=>{if(!document.querySelector(".back.show,.processing.show"))window.parent.postMessage({type:"networkTarget",action:"autoRefresh",nonce:Date.now()},"*")},5000);
+    render();initFilters();raiseFonts();
     </script>
     </body></html>
     """
@@ -1969,10 +1984,11 @@ if isinstance(network_selection, dict):
         if network_selection.get("action") == "clearCommands":
             st.session_state["open_clear_dispatch_dialog"] = True
             st.rerun()
-        if network_selection.get("action") == "refresh":
-            st.session_state["province_dashboard_render_nonce"] = (
-                st.session_state.get("province_dashboard_render_nonce", 0) + 1
-            )
+        if network_selection.get("action") in {"refresh", "autoRefresh"}:
+            if network_selection.get("action") == "refresh":
+                st.session_state["province_dashboard_render_nonce"] = (
+                    st.session_state.get("province_dashboard_render_nonce", 0) + 1
+                )
             st.rerun()
         selected_city = network_selection.get("city")
         selected_county = network_selection.get("county")
