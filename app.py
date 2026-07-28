@@ -88,6 +88,7 @@ ARK_AGENT = ArkAgent(
     os.getenv("ARK_API_KEY") or streamlit_ark_api_key,
     os.getenv("ARK_BASE_URL") or streamlit_ark_base_url,
     os.getenv("ARK_MODEL") or streamlit_ark_model,
+    timeout_seconds=10,
 )
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or streamlit_supabase_url).strip()
 SUPABASE_SECRET_KEY = (
@@ -397,14 +398,6 @@ def send_message(
     receiver: str = "哈尔滨市调度中心",
     request_key: str | None = None,
 ) -> str:
-    review = ARK_AGENT.review_ticket(
-        title=title,
-        steps=steps,
-        sender=sender,
-        receiver=receiver,
-        target_county=target_county,
-    )
-    title, steps = review.title, review.steps
     dispatch_level = "province" if sender == "黑龙江省调度中心" else "city"
     handoff = ARK_AGENT.coordinate_handoff(
         level=dispatch_level,
@@ -415,8 +408,8 @@ def send_message(
         target_region=target_county,
     )
     st.session_state["ark_last_review"] = {
-        "used_ai": review.used_ai or handoff.used_ai,
-        "note": f"{review.note}；{handoff.note}".strip("；"),
+        "used_ai": handoff.used_ai,
+        "note": handoff.note,
     }
     if AGENT_GATEWAY:
         return AGENT_GATEWAY.create_ticket(
@@ -1644,6 +1637,8 @@ if st.session_state.get("open_clear_dispatch_dialog", False):
     render_clear_dispatch_dialog()
 if dispatch_success := st.session_state.pop("dispatch_success", None):
     st.toast(dispatch_success, icon="✅")
+if dispatch_error := st.session_state.pop("dispatch_error", None):
+    st.toast(dispatch_error, icon="⚠️")
 if clear_success := st.session_state.pop("clear_dispatch_success", None):
     st.toast(clear_success, icon="✅")
 
@@ -2274,17 +2269,22 @@ if isinstance(network_selection, dict):
                 dispatch_city in province_targets
                 and dispatch_county in province_targets[dispatch_city]["counties"]
             ):
-                ticket = send_message(
-                    dispatch_county,
-                    network_selection.get("title") or "配网运行方式调整",
-                    network_selection.get("steps") or "核对线路状态并执行操作。",
-                    receiver=f"{dispatch_city}调度中心",
-                    request_key=f"province:{selection_nonce}",
-                )
-                st.session_state["dispatch_success"] = (
-                    f"操作票 {ticket} 已下发至{dispatch_city}调度中心。"
-                    f"{st.session_state.get('ark_last_review', {}).get('note', '')}"
-                )
+                try:
+                    ticket = send_message(
+                        dispatch_county,
+                        network_selection.get("title") or "配网运行方式调整",
+                        network_selection.get("steps") or "核对线路状态并执行操作。",
+                        receiver=f"{dispatch_city}调度中心",
+                        request_key=f"province:{selection_nonce}",
+                    )
+                    st.session_state["dispatch_success"] = (
+                        f"操作票 {ticket} 已下发至{dispatch_city}调度中心。"
+                        f"{st.session_state.get('ark_last_review', {}).get('note', '')}"
+                    )
+                except Exception:
+                    st.session_state["dispatch_error"] = (
+                        "操作票下发失败，未写入共享任务库，请稍后重试。"
+                    )
                 st.rerun()
         if network_selection.get("action") == "clearCommands":
             st.session_state["open_clear_dispatch_dialog"] = True
