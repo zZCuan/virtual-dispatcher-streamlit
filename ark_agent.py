@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -48,8 +49,42 @@ def _safe_http_error(exc: urllib.error.HTTPError) -> str:
 def _request_content(request: urllib.request.Request, timeout: float) -> str:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "text/event-stream" in content_type:
+                started_at = time.monotonic()
+                chunks: list[str] = []
+                for raw_line in response:
+                    if time.monotonic() - started_at > timeout:
+                        raise TimeoutError
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if not data:
+                        continue
+                    if data == "[DONE]":
+                        break
+                    event = json.loads(data)
+                    if event.get("error"):
+                        error = event["error"]
+                        message = (
+                            error.get("message", str(error))
+                            if isinstance(error, dict)
+                            else str(error)
+                        )
+                        raise RuntimeError(f"方舟流式响应失败：{message[:240]}")
+                    choices = event.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        chunks.append(str(content))
+                if not chunks:
+                    raise RuntimeError("方舟流式响应结束，但未返回模型正文")
+                return "".join(chunks).strip()
             body = json.loads(response.read().decode("utf-8"))
-        return str(body["choices"][0]["message"]["content"]).strip()
+            return str(body["choices"][0]["message"]["content"]).strip()
     except urllib.error.HTTPError as exc:
         raise RuntimeError(_safe_http_error(exc)) from exc
     except (TimeoutError, socket.timeout) as exc:
@@ -109,7 +144,7 @@ class ArkAgent:
                 "model": self.model,
                 "temperature": 0,
                 "max_tokens": max_tokens,
-                "stream": False,
+                "stream": True,
                 "thinking": {"type": "disabled"},
                 "messages": [
                     {"role": "system", "content": system_prompt},
