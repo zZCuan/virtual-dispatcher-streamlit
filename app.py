@@ -1910,7 +1910,7 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在测试方舟模型','正在检查 API 配置、网络连通性与模型响应',7000);window.parent.postMessage({type:'networkTarget',action:'testModel',nonce:Date.now()},'*')">测试模型</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在刷新全域调度数据','正在同步三级智能体状态与共享任务库',10000);window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在测试方舟模型','正在检查 API 配置、网络连通性与模型响应',20000);window.parent.postMessage({type:'networkTarget',action:'testModel',nonce:Date.now()},'*')">测试模型</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在刷新全域调度数据','正在同步三级智能体状态与共享任务库',20000);window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><div class="networkHeading"><b>智能体通信网络</b><div class="viewSwitch"><button id="orbitViewBtn" onclick="setNetworkView('orbit')">轨道视图</button><button id="mapViewBtn" onclick="setNetworkView('map')">地图视图</button></div></div><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div><div class="mapScene" id="mapScene"><svg class="mapCanvas" id="mapCanvas" viewBox="0 0 900 620" role="img" aria-label="黑龙江省智能体地图网络"></svg><div class="mapNote">滚动鼠标滚轮可缩放地图，缩放中心跟随鼠标位置</div><div class="mapZoomControl"><span id="mapZoomValue">100%</span><button onclick="resetMapZoom()">复位</button></div></div></div>
@@ -1952,7 +1952,7 @@ html = dedent(
     function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
     let globalProcessingTimer=null;
     function closeGlobalProcessing(){clearTimeout(globalProcessingTimer);const box=document.getElementById("globalProcessing");box.classList.remove("show","timedOut")}
-    function showGlobalProcessing(title,detail,timeoutMs=12000){
+    function showGlobalProcessing(title,detail,timeoutMs=20000){
       clearTimeout(globalProcessingTimer);
       const box=document.getElementById("globalProcessing");
       box.classList.remove("timedOut");
@@ -2375,6 +2375,9 @@ if isinstance(network_selection, dict):
                 st.session_state["model_test_error"] = (
                     f"方舟模型测试失败：{model_note}"
                 )
+            st.session_state["province_dashboard_render_nonce"] = (
+                st.session_state.get("province_dashboard_render_nonce", 0) + 1
+            )
             st.rerun()
         if network_selection.get("action") == "provinceDispatch":
             dispatch_city = network_selection.get("city")
@@ -2404,6 +2407,9 @@ if isinstance(network_selection, dict):
                         f"共享任务库写入失败：{type(exc).__name__}："
                         f"{str(exc)[:180]}。操作票未下发。"
                     )
+                st.session_state["province_dashboard_render_nonce"] = (
+                    st.session_state.get("province_dashboard_render_nonce", 0) + 1
+                )
                 st.rerun()
         if network_selection.get("action") == "clearCommands":
             st.session_state["open_clear_dispatch_dialog"] = True
