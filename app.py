@@ -344,6 +344,35 @@ def save_meta_json(key: str, value: dict) -> None:
         connection.commit()
 
 
+def login_session_key(username: str) -> str:
+    return f"active_login_session:{username}"
+
+
+def issue_login_session(username: str) -> str:
+    """Make this browser the only active session for an account."""
+    token = uuid.uuid4().hex
+    save_meta_json(
+        login_session_key(username),
+        {"token": token, "issued_at": time.time()},
+    )
+    return token
+
+
+def login_session_is_current(username: str, token: str) -> bool:
+    active = load_meta_json(login_session_key(username))
+    return bool(active and token and active.get("token") == token)
+
+
+def clear_local_authentication() -> None:
+    for key in (
+        "auth_role", "auth_name", "auth_county", "auth_city",
+        "auth_username", "auth_session_token",
+        "auth_session_checked_at", "auth_session_check_error",
+        "login_transition_pending", "login_transition_started",
+    ):
+        st.session_state.pop(key, None)
+
+
 def run_agent_cycle(
     agent_id: str,
     level: str,
@@ -846,6 +875,8 @@ def render_login_transition(account: dict[str, str], username: str) -> None:
 
 
 def render_login() -> None:
+    if kicked_message := st.session_state.pop("login_kicked_message", None):
+        st.warning(kicked_message)
     st.markdown(
         """
         <style>
@@ -878,14 +909,24 @@ def render_login() -> None:
         if submitted:
             account = DEMO_ACCOUNTS.get(username.strip())
             if account and password == account["password"]:
-                st.session_state["auth_role"] = account["role"]
-                st.session_state["auth_name"] = account["name"]
-                st.session_state["auth_county"] = account.get("county")
-                st.session_state["auth_city"] = account.get("city")
-                st.session_state["auth_username"] = username.strip()
-                st.session_state["login_transition_pending"] = True
-                st.session_state["login_transition_started"] = time.time()
-                st.rerun()
+                normalized_username = username.strip()
+                try:
+                    session_token = issue_login_session(normalized_username)
+                except Exception as exc:
+                    st.error(
+                        f"登录会话登记失败：{type(exc).__name__}："
+                        f"{str(exc)[:180]}。请检查共享任务库连接后重试。"
+                    )
+                else:
+                    st.session_state["auth_role"] = account["role"]
+                    st.session_state["auth_name"] = account["name"]
+                    st.session_state["auth_county"] = account.get("county")
+                    st.session_state["auth_city"] = account.get("city")
+                    st.session_state["auth_username"] = normalized_username
+                    st.session_state["auth_session_token"] = session_token
+                    st.session_state["login_transition_pending"] = True
+                    st.session_state["login_transition_started"] = time.time()
+                    st.rerun()
             else:
                 st.error("账号或密码错误，请核对后重试。")
     st.markdown(
@@ -1130,8 +1171,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
             st.session_state["harbin_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
-                    st.session_state.pop(key, None)
+                clear_local_authentication()
                 st.query_params.clear()
                 st.rerun()
             elif action in {"refresh", "autoRefresh"}:
@@ -1281,8 +1321,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
             st.session_state["county_action_nonce"] = nonce
             action = result.get("action")
             if action == "logout":
-                for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
-                    st.session_state.pop(key, None)
+                clear_local_authentication()
                 st.rerun()
             if action in {"refresh", "autoRefresh"}:
                 if action == "refresh":
@@ -1300,8 +1339,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
 
 
 if st.query_params.get("logout") == "1":
-    for key in ("auth_role", "auth_name", "auth_county", "auth_city", "auth_username"):
-        st.session_state.pop(key, None)
+    clear_local_authentication()
     st.query_params.clear()
     st.rerun()
 
@@ -1596,6 +1634,37 @@ for city in CITIES:
         }
 
 role = st.session_state.get("auth_role")
+if role in {"province", "city", "county"}:
+    active_username = st.session_state.get("auth_username", "")
+    active_token = st.session_state.get("auth_session_token", "")
+    now = time.time()
+    last_session_check = float(st.session_state.get("auth_session_checked_at", 0))
+    if not active_username or not active_token:
+        clear_local_authentication()
+        st.session_state["login_kicked_message"] = (
+            "登录会话机制已更新，请重新登录。后续同一账号再次登录时，旧窗口将自动退出。"
+        )
+        role = None
+    elif now - last_session_check >= 5:
+        try:
+            session_is_current = login_session_is_current(
+                active_username, active_token
+            )
+        except Exception as exc:
+            # A temporary database outage must not incorrectly kick out an operator.
+            st.session_state["auth_session_check_error"] = (
+                f"{type(exc).__name__}：{str(exc)[:160]}"
+            )
+            st.session_state["auth_session_checked_at"] = now
+        else:
+            st.session_state["auth_session_checked_at"] = now
+            st.session_state.pop("auth_session_check_error", None)
+            if not session_is_current:
+                clear_local_authentication()
+                st.session_state["login_kicked_message"] = (
+                    f"账号 {active_username} 已在其他窗口登录，当前窗口已安全退出。"
+                )
+                role = None
 if role and st.session_state.get("login_transition_pending"):
     render_login_transition(
         {"role": role},
