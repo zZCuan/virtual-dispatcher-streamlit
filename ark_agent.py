@@ -237,7 +237,7 @@ class ArkAgent:
                     "任务名称": title,
                     "操作步骤": steps,
                 },
-                max_tokens=700,
+                max_tokens=1600,
             )
             reviewed_title = str(reviewed.get("title", "")).strip()
             reviewed_steps = str(reviewed.get("steps", "")).strip()
@@ -318,7 +318,7 @@ class ArkAgent:
                     "原始任务": task_text,
                     "输出用途": "供当前层级操作员理解任务，并供下一级智能体承接执行",
                 },
-                max_tokens=700,
+                max_tokens=1600,
             )
             analysis = str(result.get("analysis", "")).strip()
             delegated_task = str(result.get("delegated_task", "")).strip()
