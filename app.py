@@ -1950,10 +1950,11 @@ html = dedent(
     function saveNetworkSelection(){sessionStorage.setItem("provinceNetworkSelection",JSON.stringify({active,selected,focused,armedKey}))}
     function requestOperationTicket(){openModal()}
     function requestClearCommands(){window.parent.postMessage({type:"networkTarget",action:"clearCommands",nonce:Date.now()},"*")}
-    let globalProcessingTimer=null;
-    function closeGlobalProcessing(){clearTimeout(globalProcessingTimer);const box=document.getElementById("globalProcessing");box.classList.remove("show","timedOut")}
+    let globalProcessingTimer=null,globalActionInFlight=false;
+    function closeGlobalProcessing(){clearTimeout(globalProcessingTimer);globalActionInFlight=false;const box=document.getElementById("globalProcessing");box.classList.remove("show","timedOut")}
     function showGlobalProcessing(title,detail,timeoutMs=185000){
       clearTimeout(globalProcessingTimer);
+      globalActionInFlight=true;
       const box=document.getElementById("globalProcessing");
       box.classList.remove("timedOut");
       document.getElementById("globalProcessingTitle").textContent=title;
@@ -2322,7 +2323,7 @@ html = dedent(
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value.trim(),steps=document.getElementById("operationContent").value.trim();if(!title||!steps){alert("请填写调度任务名称和指令内容");return}closeModal();showGlobalProcessing("省级智能体正在下发操作票",`正在校验${cities[active].name}管辖范围、分析任务并写入共享任务库`);window.parent.postMessage({type:"networkTarget",action:"provinceDispatch",city:cities[active].name,county:selected,title,steps,nonce:Date.now()},"*")}
     setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);
-    setInterval(()=>{if(!document.querySelector(".back.show,.processing.show"))window.parent.postMessage({type:"networkTarget",action:"autoRefresh",nonce:Date.now()},"*")},5000);
+    setInterval(()=>{if(!globalActionInFlight&&!document.querySelector(".back.show,.globalProcessing.show"))window.parent.postMessage({type:"networkTarget",action:"autoRefresh",nonce:Date.now()},"*")},5000);
     render();initFilters();raiseFonts();
     </script>
     </body></html>
