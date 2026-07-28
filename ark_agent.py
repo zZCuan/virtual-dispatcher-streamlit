@@ -198,7 +198,7 @@ class ArkAgent:
                 result.get("delegated_task", "")
             ).strip():
                 return False, "模型已响应，但未返回完整的调度任务分析字段"
-            return True, f"调度大模型 {self.model} 调用正常"
+            return True, "调度大模型调用正常"
         except Exception as exc:
             return False, str(exc)[:240]
 
