@@ -109,6 +109,7 @@ class ArkAgent:
                 "temperature": 0,
                 "max_tokens": 700,
                 "stream": False,
+                "thinking": {"type": "disabled"},
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {
