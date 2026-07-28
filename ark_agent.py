@@ -102,7 +102,7 @@ class ArkAgent:
         system_prompt: str,
         user_data: dict,
         timeout_seconds: float | None = None,
-        max_tokens: int = 360,
+        max_tokens: int = 700,
     ) -> dict:
         payload = json.dumps(
             {
@@ -137,7 +137,7 @@ class ArkAgent:
             )
         )
 
-    def test_connection(self, timeout_seconds: float = 8) -> tuple[bool, str]:
+    def test_connection(self, timeout_seconds: float = 180) -> tuple[bool, str]:
         """Run a representative structured dispatch request, not just a ping."""
         if not self.enabled:
             return False, "方舟 API Key、Base URL 或模型名称尚未完整配置"
@@ -157,7 +157,7 @@ class ArkAgent:
                     "原始任务": "核对目标区域状态，完成后向上级提交回令。",
                 },
                 timeout_seconds=timeout_seconds,
-                max_tokens=220,
+                max_tokens=700,
             )
             if not str(result.get("analysis", "")).strip() or not str(
                 result.get("delegated_task", "")
@@ -202,7 +202,7 @@ class ArkAgent:
                     "任务名称": title,
                     "操作步骤": steps,
                 },
-                max_tokens=300,
+                max_tokens=700,
             )
             reviewed_title = str(reviewed.get("title", "")).strip()
             reviewed_steps = str(reviewed.get("steps", "")).strip()
@@ -283,7 +283,7 @@ class ArkAgent:
                     "原始任务": task_text,
                     "输出用途": "供当前层级操作员理解任务，并供下一级智能体承接执行",
                 },
-                max_tokens=360,
+                max_tokens=700,
             )
             analysis = str(result.get("analysis", "")).strip()
             delegated_task = str(result.get("delegated_task", "")).strip()
