@@ -72,7 +72,7 @@ def _request_content(request: urllib.request.Request, timeout: float) -> str:
                             if isinstance(error, dict)
                             else str(error)
                         )
-                        raise RuntimeError(f"方舟流式响应失败：{message[:240]}")
+                        raise RuntimeError(f"大模型流式响应失败：{message[:240]}")
                     choices = event.get("choices") or []
                     if not choices:
                         continue
@@ -81,7 +81,7 @@ def _request_content(request: urllib.request.Request, timeout: float) -> str:
                     if content:
                         chunks.append(str(content))
                 if not chunks:
-                    raise RuntimeError("方舟流式响应结束，但未返回模型正文")
+                    raise RuntimeError("大模型流式响应结束，但未返回有效正文")
                 return "".join(chunks).strip()
             body = json.loads(response.read().decode("utf-8"))
             return str(body["choices"][0]["message"]["content"]).strip()
@@ -95,7 +95,7 @@ def _request_content(request: urllib.request.Request, timeout: float) -> str:
             raise RuntimeError(f"请求超时（{int(timeout)} 秒）") from exc
         raise RuntimeError(f"网络连接失败 · {str(reason)[:180]}") from exc
     except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError("方舟返回格式异常，未找到模型回复内容") from exc
+        raise RuntimeError("大模型返回格式异常，未找到模型回复内容") from exc
 
 
 def _parse_json_object(content: str) -> dict:
@@ -175,7 +175,7 @@ class ArkAgent:
     def test_connection(self, timeout_seconds: float = 180) -> tuple[bool, str]:
         """Run a representative structured dispatch request, not just a ping."""
         if not self.enabled:
-            return False, "方舟 API Key、Base URL 或模型名称尚未完整配置"
+            return False, "大模型 API Key、Base URL 或模型名称尚未完整配置"
         try:
             result = self._complete(
                 (
@@ -198,7 +198,7 @@ class ArkAgent:
                 result.get("delegated_task", "")
             ).strip():
                 return False, "模型已响应，但未返回完整的调度任务分析字段"
-            return True, f"方舟模型 {self.model} 调度任务生成正常"
+            return True, f"调度大模型 {self.model} 调用正常"
         except Exception as exc:
             return False, str(exc)[:240]
 
@@ -212,7 +212,7 @@ class ArkAgent:
         target_county: str,
     ) -> TicketReview:
         if not self.enabled:
-            return TicketReview(title, steps, False, "火山方舟未配置")
+            return TicketReview(title, steps, False, "调度大模型尚未配置")
 
         system_prompt = (
             "你是配电网三级调度系统中的操作票理解与文字审校智能体。"
@@ -247,14 +247,14 @@ class ArkAgent:
                 reviewed_title,
                 reviewed_steps,
                 True,
-                "已通过火山方舟调度智能体完成文字审校",
+                "已通过调度智能体 Agent 完成文字审校",
             )
         except Exception as exc:
             return TicketReview(
                 title,
                 steps,
                 False,
-                f"方舟调用失败，已使用原操作票：{exc}",
+                f"大模型调用失败，已使用原操作票：{exc}",
             )
 
     def coordinate_handoff(
@@ -283,7 +283,7 @@ class ArkAgent:
                 fallback_analysis,
                 task_text,
                 False,
-                "火山方舟未配置，已使用规则化智能体协同结果",
+                "调度大模型尚未配置，已使用规则化智能体协同结果",
             )
 
         system_prompt = (
