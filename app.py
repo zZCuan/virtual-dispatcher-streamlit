@@ -88,7 +88,7 @@ ARK_AGENT = ArkAgent(
     os.getenv("ARK_API_KEY") or streamlit_ark_api_key,
     os.getenv("ARK_BASE_URL") or streamlit_ark_base_url,
     os.getenv("ARK_MODEL") or streamlit_ark_model,
-    timeout_seconds=10,
+    timeout_seconds=12,
 )
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or streamlit_supabase_url).strip()
 SUPABASE_SECRET_KEY = (
@@ -2368,7 +2368,7 @@ if isinstance(network_selection, dict):
             st.session_state["open_operation_ticket_dialog"] = True
             st.rerun()
         if network_selection.get("action") == "testModel":
-            model_ok, model_note = ARK_AGENT.test_connection(timeout_seconds=3)
+            model_ok, model_note = ARK_AGENT.test_connection(timeout_seconds=8)
             if model_ok:
                 st.session_state["model_test_success"] = model_note
             else:

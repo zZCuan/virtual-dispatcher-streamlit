@@ -102,12 +102,13 @@ class ArkAgent:
         system_prompt: str,
         user_data: dict,
         timeout_seconds: float | None = None,
+        max_tokens: int = 360,
     ) -> dict:
         payload = json.dumps(
             {
                 "model": self.model,
                 "temperature": 0,
-                "max_tokens": 700,
+                "max_tokens": max_tokens,
                 "stream": False,
                 "thinking": {"type": "disabled"},
                 "messages": [
@@ -136,19 +137,33 @@ class ArkAgent:
             )
         )
 
-    def test_connection(self, timeout_seconds: float = 5) -> tuple[bool, str]:
-        """Run a minimal Ark request and return a user-safe diagnostic."""
+    def test_connection(self, timeout_seconds: float = 8) -> tuple[bool, str]:
+        """Run a representative structured dispatch request, not just a ping."""
         if not self.enabled:
             return False, "方舟 API Key、Base URL 或模型名称尚未完整配置"
         try:
             result = self._complete(
-                "你是接口连通性检测程序。只返回 JSON 对象：{\"status\":\"ok\"}。",
-                {"action": "health_check"},
+                (
+                    "你是省级调度智能体。快速理解操作票并生成下级任务。"
+                    "只返回 JSON 对象，字段必须为 analysis、delegated_task；"
+                    "analysis 用不超过120字概括任务目的、责任边界、核对重点和回令要求；"
+                    "delegated_task 保留原任务动作和参数，不得新增设备或操作。"
+                ),
+                {
+                    "发送智能体": "黑龙江省调度智能体",
+                    "接收智能体": "哈尔滨市调度智能体",
+                    "目标地区": "南岗区",
+                    "任务名称": "模型业务能力测试",
+                    "原始任务": "核对目标区域状态，完成后向上级提交回令。",
+                },
                 timeout_seconds=timeout_seconds,
+                max_tokens=220,
             )
-            if str(result.get("status", "")).lower() != "ok":
-                return False, "模型已响应，但返回内容未通过格式校验"
-            return True, f"方舟模型 {self.model} 调用正常"
+            if not str(result.get("analysis", "")).strip() or not str(
+                result.get("delegated_task", "")
+            ).strip():
+                return False, "模型已响应，但未返回完整的调度任务分析字段"
+            return True, f"方舟模型 {self.model} 调度任务生成正常"
         except Exception as exc:
             return False, str(exc)[:240]
 
@@ -187,6 +202,7 @@ class ArkAgent:
                     "任务名称": title,
                     "操作步骤": steps,
                 },
+                max_tokens=300,
             )
             reviewed_title = str(reviewed.get("title", "")).strip()
             reviewed_steps = str(reviewed.get("steps", "")).strip()
@@ -267,6 +283,7 @@ class ArkAgent:
                     "原始任务": task_text,
                     "输出用途": "供当前层级操作员理解任务，并供下一级智能体承接执行",
                 },
+                max_tokens=360,
             )
             analysis = str(result.get("analysis", "")).strip()
             delegated_task = str(result.get("delegated_task", "")).strip()
