@@ -97,7 +97,12 @@ class ArkAgent:
     def enabled(self) -> bool:
         return bool(self.api_key and self.base_url and self.model)
 
-    def _complete(self, system_prompt: str, user_data: dict) -> dict:
+    def _complete(
+        self,
+        system_prompt: str,
+        user_data: dict,
+        timeout_seconds: float | None = None,
+    ) -> dict:
         payload = json.dumps(
             {
                 "model": self.model,
@@ -121,7 +126,28 @@ class ArkAgent:
             },
             method="POST",
         )
-        return _parse_json_object(_request_content(request, self.timeout_seconds))
+        return _parse_json_object(
+            _request_content(
+                request,
+                self.timeout_seconds if timeout_seconds is None else timeout_seconds,
+            )
+        )
+
+    def test_connection(self, timeout_seconds: float = 5) -> tuple[bool, str]:
+        """Run a minimal Ark request and return a user-safe diagnostic."""
+        if not self.enabled:
+            return False, "方舟 API Key、Base URL 或模型名称尚未完整配置"
+        try:
+            result = self._complete(
+                "你是接口连通性检测程序。只返回 JSON 对象：{\"status\":\"ok\"}。",
+                {"action": "health_check"},
+                timeout_seconds=timeout_seconds,
+            )
+            if str(result.get("status", "")).lower() != "ok":
+                return False, "模型已响应，但返回内容未通过格式校验"
+            return True, f"方舟模型 {self.model} 调用正常"
+        except Exception as exc:
+            return False, str(exc)[:240]
 
     def review_ticket(
         self,

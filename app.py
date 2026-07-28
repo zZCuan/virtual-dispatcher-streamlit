@@ -109,6 +109,10 @@ DEMO_ACCOUNTS = {
 }
 
 
+class DispatchModelError(RuntimeError):
+    """Raised when Ark cannot produce a validated dispatch handoff."""
+
+
 def connect_db() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.execute(
@@ -407,6 +411,8 @@ def send_message(
         receiver=receiver,
         target_region=target_county,
     )
+    if not handoff.used_ai:
+        raise DispatchModelError(handoff.note or "方舟模型未返回有效任务分析")
     st.session_state["ark_last_review"] = {
         "used_ai": handoff.used_ai,
         "note": handoff.note,
@@ -1013,6 +1019,8 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
     keep_city_heartbeat()
     if success_message := st.session_state.pop("city_dispatch_success", None):
         st.toast(success_message, icon="✅")
+    if error_message := st.session_state.pop("city_dispatch_error", None):
+        st.toast(error_message, icon="⚠️")
     online_agents = load_online_agents()
     online_counties = [
         county for county in counties if county_agent_id(city_name, county) in online_agents
@@ -1138,16 +1146,26 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                     acknowledge_message(message["id"]) if action == "ack" else forward_message_to_county(message)
                     st.rerun()
             elif action == "downstream" and result.get("county") in counties:
-                ticket = send_message(
-                    result["county"], result.get("title") or "区域配网运行方式调整",
-                    result.get("steps") or "核对线路状态并执行操作。",
-                    sender=city_center, receiver=county_agent_id(city_name, result["county"]),
-                    request_key=f"downstream:{nonce}",
-                )
-                st.session_state["city_initial_record_type"] = "outgoing"
-                st.session_state["city_dispatch_success"] = (
-                    f"操作票 {ticket} 已保存并下发至{result['county']}。"
-                )
+                try:
+                    ticket = send_message(
+                        result["county"], result.get("title") or "区域配网运行方式调整",
+                        result.get("steps") or "核对线路状态并执行操作。",
+                        sender=city_center, receiver=county_agent_id(city_name, result["county"]),
+                        request_key=f"downstream:{nonce}",
+                    )
+                    st.session_state["city_initial_record_type"] = "outgoing"
+                    st.session_state["city_dispatch_success"] = (
+                        f"操作票 {ticket} 已保存并下发至{result['county']}。"
+                    )
+                except DispatchModelError as exc:
+                    st.session_state["city_dispatch_error"] = (
+                        f"方舟模型调用失败：{str(exc)[:220]}。操作票未下发。"
+                    )
+                except Exception as exc:
+                    st.session_state["city_dispatch_error"] = (
+                        f"共享任务库写入失败：{type(exc).__name__}："
+                        f"{str(exc)[:180]}。操作票未下发。"
+                    )
                 st.rerun()
 
 
@@ -1639,6 +1657,10 @@ if dispatch_success := st.session_state.pop("dispatch_success", None):
     st.toast(dispatch_success, icon="✅")
 if dispatch_error := st.session_state.pop("dispatch_error", None):
     st.toast(dispatch_error, icon="⚠️")
+if model_test_success := st.session_state.pop("model_test_success", None):
+    st.toast(model_test_success, icon="✅")
+if model_test_error := st.session_state.pop("model_test_error", None):
+    st.toast(model_test_error, icon="⚠️")
 if clear_success := st.session_state.pop("clear_dispatch_success", None):
     st.toast(clear_success, icon="✅")
 
@@ -1819,7 +1841,7 @@ html = dedent(
     </head>
     <body>
     <div class="app">
-      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在刷新全域调度数据','正在同步三级智能体状态与共享任务库');window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
+      <section class="bar"><div class="title"><span>全域态势</span><b>省级调度中心视角</b></div><div class="stats"><div class="stat"><span>地市智能体</span><b>__CITY_ONLINE__</b><em>/ 13 在线</em></div><div class="stat"><span>区县节点</span><b>125</b><em>已配置</em></div><div class="stat"><span>今日指令</span><b>__TODAY_COUNT__</b><em>__TODAY_STATUS__</em></div></div><div style="display:flex;gap:8px"><button class="new" style="background:#fff;color:#9b3e32;border:1px solid #dfb7b1;box-shadow:none" onclick="requestClearCommands()">清空测试指令</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在测试方舟模型','正在检查 API 配置、网络连通性与模型响应');window.parent.postMessage({type:'networkTarget',action:'testModel',nonce:Date.now()},'*')">测试模型</button><button class="new" style="background:#fff;color:#087f68;border:1px solid #9acfc2;box-shadow:none" onclick="showGlobalProcessing('正在刷新全域调度数据','正在同步三级智能体状态与共享任务库');window.parent.postMessage({type:'networkTarget',action:'refresh',nonce:Date.now()},'*')">刷新数据</button><button class="new" onclick="requestOperationTicket()">＋ 新建操作票</button></div></section>
       <section class="work">
         <aside class="panel left"><div class="ph"><span>地市调度</span><small>__CITY_ONLINE__ / 13 在线</small></div><div class="cities" id="cities"></div></aside>
         <div class="network"><div class="nt"><div class="networkHeading"><b>智能体通信网络</b><div class="viewSwitch"><button id="orbitViewBtn" onclick="setNetworkView('orbit')">轨道视图</button><button id="mapViewBtn" onclick="setNetworkView('map')">地图视图</button></div></div><div class="legend"><i></i>省级 <i></i>地市 <i></i>区 / 县 <span class="flowKey">业务数据流</span><span class="flowKey probe">心跳探测流</span></div></div><div class="scene" id="scene"><div class="focusHint" id="focusHint">地市聚焦视图 · 点击左侧省级节点返回全省总览</div><div class="sweep"></div><div class="orbit outer"></div><div class="orbit middle"></div><div class="orbit inner"></div><div class="olabel citylabel">地市协同轨道</div><div class="olabel countylabel">区 / 县独立轨道 · 125 节点</div><div class="province" onclick="selectProvince()" title="返回省级总览"><span class="ring"></span><span class="picon">龙江</span><b>省级调度智能体</b><small>全局态势 · 指令中枢</small></div></div><div class="mapScene" id="mapScene"><svg class="mapCanvas" id="mapCanvas" viewBox="0 0 900 620" role="img" aria-label="黑龙江省智能体地图网络"></svg><div class="mapNote">滚动鼠标滚轮可缩放地图，缩放中心跟随鼠标位置</div><div class="mapZoomControl"><span id="mapZoomValue">100%</span><button onclick="resetMapZoom()">复位</button></div></div></div>
@@ -2262,6 +2284,15 @@ if isinstance(network_selection, dict):
         if network_selection.get("action") == "openTicket":
             st.session_state["open_operation_ticket_dialog"] = True
             st.rerun()
+        if network_selection.get("action") == "testModel":
+            model_ok, model_note = ARK_AGENT.test_connection(timeout_seconds=5)
+            if model_ok:
+                st.session_state["model_test_success"] = model_note
+            else:
+                st.session_state["model_test_error"] = (
+                    f"方舟模型测试失败：{model_note}"
+                )
+            st.rerun()
         if network_selection.get("action") == "provinceDispatch":
             dispatch_city = network_selection.get("city")
             dispatch_county = network_selection.get("county")
@@ -2281,9 +2312,14 @@ if isinstance(network_selection, dict):
                         f"操作票 {ticket} 已下发至{dispatch_city}调度中心。"
                         f"{st.session_state.get('ark_last_review', {}).get('note', '')}"
                     )
-                except Exception:
+                except DispatchModelError as exc:
                     st.session_state["dispatch_error"] = (
-                        "操作票下发失败，未写入共享任务库，请稍后重试。"
+                        f"方舟模型调用失败：{str(exc)[:220]}。操作票未下发。"
+                    )
+                except Exception as exc:
+                    st.session_state["dispatch_error"] = (
+                        f"共享任务库写入失败：{type(exc).__name__}："
+                        f"{str(exc)[:180]}。操作票未下发。"
                     )
                 st.rerun()
         if network_selection.get("action") == "clearCommands":
