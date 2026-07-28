@@ -106,6 +106,11 @@ network_component = components.declare_component(
 )
 DEMO_ACCOUNTS = {
     "hlj_province": {"password": "demo123", "role": "province", "name": "黑龙江省级调度账号"},
+    "hlj_province_2": {
+        "password": "demo123",
+        "role": "province",
+        "name": "黑龙江省级调度副账号",
+    },
 }
 
 
@@ -932,9 +937,9 @@ def render_login() -> None:
     st.markdown(
         """
         <div class="demo-accounts">
-          演示账号：省级 <b>hlj_province</b>　·　市级 <b>harbin_city</b>　·　
+          演示账号：省级 <b>hlj_province</b> / <b>hlj_province_2</b>　·　市级 <b>harbin_city</b>　·　
           区县级 <b>nangang_county</b>　　统一密码：<b>demo123</b><br>
-          已配置 1 个省级、13 个市级、125 个区县级账号；市/区县账号采用“地区全拼 + 权限后缀”。
+          已配置 2 个省级、13 个市级、125 个区县级账号；市/区县账号采用“地区全拼 + 权限后缀”。
         </div>
         """,
         unsafe_allow_html=True,
@@ -1707,11 +1712,12 @@ def keep_province_heartbeat() -> None:
     touch_agent_if_due("黑龙江省调度中心", "province")
 keep_province_heartbeat()
 
+province_username = st.session_state.get("auth_username") or "hlj_province"
 st.markdown(
-    """
+    f"""
     <div class="workspace-brand">
       <b>龙江电网 · 虚拟配网调度中心</b>
-      <small>当前账号：hlj_province　·　省级调度权限　·　指令下发工作台</small>
+      <small>当前账号：{province_username}　·　省级调度权限　·　指令下发工作台</small>
       <a class="workspace-logout" href="/?logout=1" target="_self">退出账号</a>
     </div>
     """,
@@ -1748,7 +1754,7 @@ today_command_count, today_delivery_text = load_today_dispatch_stats(
     all_dispatch_messages
 )
 province_agent_state = run_agent_cycle(
-    "hlj_province",
+    province_username,
     "province",
     all_dispatch_messages,
     persist=False,
@@ -2393,7 +2399,7 @@ if isinstance(network_selection, dict):
                         network_selection.get("title") or "配网运行方式调整",
                         network_selection.get("steps") or "核对线路状态并执行操作。",
                         receiver=f"{dispatch_city}调度中心",
-                        request_key=f"province:{selection_nonce}",
+                        request_key=f"province:{province_username}:{selection_nonce}",
                     )
                     st.session_state["dispatch_success"] = (
                         f"操作票 {ticket} 已下发至{dispatch_city}调度中心。"
