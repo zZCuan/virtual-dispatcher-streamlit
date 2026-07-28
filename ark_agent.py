@@ -107,6 +107,8 @@ class ArkAgent:
             {
                 "model": self.model,
                 "temperature": 0,
+                "max_tokens": 700,
+                "stream": False,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {
@@ -280,5 +282,5 @@ class ArkAgent:
                 fallback_analysis,
                 task_text,
                 False,
-                f"{level_name}智能体调用失败，已使用规则化分派：{exc}",
+                f"{level_name}智能体调用失败：{exc}",
             )
