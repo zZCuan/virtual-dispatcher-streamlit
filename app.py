@@ -349,6 +349,71 @@ def save_meta_json(key: str, value: dict) -> None:
         connection.commit()
 
 
+def voice_confirmation_key(ticket_no: str) -> str:
+    return f"voice_confirmation:{ticket_no}"
+
+
+def load_voice_confirmations(ticket_numbers: list[str]) -> dict[str, dict]:
+    """Load selected county voice confirmations in one database request."""
+    wanted = {ticket for ticket in ticket_numbers if ticket}
+    if not wanted:
+        return {}
+    keys = [voice_confirmation_key(ticket) for ticket in wanted]
+    rows: list[dict] = []
+    if SUPABASE_DB:
+        response = (
+            SUPABASE_DB.table("app_meta")
+            .select("key,value")
+            .in_("key", keys)
+            .execute()
+        )
+        rows = response.data or []
+    else:
+        placeholders = ",".join("?" for _ in keys)
+        with connect_db() as connection:
+            selected = connection.execute(
+                f"SELECT key, value FROM app_meta WHERE key IN ({placeholders})",
+                keys,
+            ).fetchall()
+        rows = [{"key": row[0], "value": row[1]} for row in selected]
+    confirmations: dict[str, dict] = {}
+    for row in rows:
+        try:
+            value = json.loads(row["value"])
+        except (TypeError, ValueError):
+            continue
+        ticket = str(row["key"]).removeprefix("voice_confirmation:")
+        if isinstance(value, dict):
+            confirmations[ticket] = value
+    return confirmations
+
+
+def save_voice_confirmation(
+    message: sqlite3.Row | dict,
+    audio_data_url: str,
+    mime_type: str,
+    duration_ms: int,
+    recorded_by: str,
+) -> None:
+    if not audio_data_url.startswith("data:audio/"):
+        raise ValueError("录音格式无效，请重新录制。")
+    if len(audio_data_url) > 5_500_000:
+        raise ValueError("录音文件过大，请将单次录音控制在 90 秒以内。")
+    ticket_no = str(message_field(message, "ticket_no", ""))
+    save_meta_json(
+        voice_confirmation_key(ticket_no),
+        {
+            "ticket_no": ticket_no,
+            "message_id": message_field(message, "id", ""),
+            "audio_data_url": audio_data_url,
+            "mime_type": mime_type or "audio/webm",
+            "duration_ms": max(0, int(duration_ms or 0)),
+            "recorded_by": recorded_by,
+            "recorded_at": time.time(),
+        },
+    )
+
+
 def login_session_key(username: str) -> str:
     return f"active_login_session:{username}"
 
@@ -1072,6 +1137,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         county for county in counties if county_agent_id(city_name, county) in online_agents
     ]
     rows = load_city_messages(city_name)
+    voice_confirmations = load_voice_confirmations(
+        [row["ticket_no"] for row in rows]
+    )
     city_inbox = [row for row in rows if row["receiver"] == city_center]
     city_agent_state = run_agent_cycle(
         username, "city", city_inbox, persist=False
@@ -1087,6 +1155,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
             "createdAt": int(row["created_at"] * 1000),
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
+            "voiceConfirmation": voice_confirmations.get(row["ticket_no"]),
         }
         for row in rows
     ]
@@ -1132,8 +1201,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         function selectCounty(c){selectedCounty=selectedCounty===c?"":c;document.getElementById("chainCounty").textContent=selectedCounty?selectedCounty+"智能体":"目标区县智能体";renderCounties();renderInbox()}
         function setRecordType(type){recordType=type;document.getElementById("incomingTab").classList.toggle("active",type==="incoming");document.getElementById("outgoingTab").classList.toggle("active",type==="outgoing");renderInbox()}
         function filterCutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}
-        function renderInbox(){const box=document.getElementById("inbox"),timeValue=document.getElementById("cityTimeFilter").value,statusValue=document.getElementById("cityStatusFilter").value,cutoff=filterCutoff(timeValue),visible=messages.filter(m=>m.direction===recordType&&(!selectedCounty||m.county===selectedCounty)&&(!statusValue||m.status===statusValue)&&(!cutoff||m.createdAt>=cutoff)),newCount=visible.filter(m=>m.direction==="incoming"&&m.status==="已送达").length;document.getElementById("cityFilterCount").textContent=`${visible.length} 条`;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m),incoming=m.direction==="incoming",route=incoming?`${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体`:`哈尔滨市调度中心 → ${esc(m.county)}调度智能体`;return `<article class="card ${incoming&&m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${route}</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${incoming&&m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}','${esc(m.county)}')">签收指令</button>`:""}${incoming&&m.status==="已签收"?`<button class="primary" onclick="processMessage('forward','${m.id}','${esc(m.county)}')">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty:"当前"}暂无${recordType==="incoming"?"省调接收":"市调下发"}操作票记录。</div>`);raiseFonts()}
+        function renderInbox(){const box=document.getElementById("inbox"),timeValue=document.getElementById("cityTimeFilter").value,statusValue=document.getElementById("cityStatusFilter").value,cutoff=filterCutoff(timeValue),visible=messages.filter(m=>m.direction===recordType&&(!selectedCounty||m.county===selectedCounty)&&(!statusValue||m.status===statusValue)&&(!cutoff||m.createdAt>=cutoff)),newCount=visible.filter(m=>m.direction==="incoming"&&m.status==="已送达").length;document.getElementById("cityFilterCount").textContent=`${visible.length} 条`;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m),incoming=m.direction==="incoming",route=incoming?`${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体`:`哈尔滨市调度中心 → ${esc(m.county)}调度智能体`;return `<article class="card ${incoming&&m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${route}</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span style="color:#007f66;font-weight:700">✓ 区县已提交语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playConfirmation(${i})">▶ 播放回令录音</button>`:""}${incoming&&m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}','${esc(m.county)}')">签收指令</button>`:""}${incoming&&m.status==="已签收"?`<button class="primary" onclick="processMessage('forward','${m.id}','${esc(m.county)}')">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty:"当前"}暂无${recordType==="incoming"?"省调接收":"市调下发"}操作票记录。</div>`);raiseFonts()}
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
+        function playConfirmation(i){const voice=messages[i].voiceConfirmation;if(voice?.audio_data_url)new Audio(voice.audio_data_url).play()}
         function openModal(){const target=selectedCounty||"南岗区";document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===target?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
         function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}
         function processMessage(action,id,county){if(action==="ack")startProcessing("市级智能体正在签收指令","正在校验操作票状态并登记签收记录");else startProcessing(`正在转发至${county}智能体`,"正在承接省级任务、细化区县操作步骤并写入共享任务库");post({action,id})}
@@ -1273,9 +1343,16 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     def keep_county_dashboard_heartbeat() -> None:
         touch_agent_if_due(agent_id, "county")
     keep_county_dashboard_heartbeat()
+    if voice_error := st.session_state.pop("county_voice_error", None):
+        st.toast(voice_error, icon="⚠️")
+    if voice_success := st.session_state.pop("county_voice_success", None):
+        st.toast(voice_success, icon="✅")
     rows = load_messages_for(agent_id)
     county_agent_state = run_agent_cycle(
         username, "county", rows, persist=False
+    )
+    voice_confirmations = load_voice_confirmations(
+        [row["ticket_no"] for row in rows]
     )
     messages = [
         {
@@ -1285,6 +1362,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
             "createdAt": int(row["created_at"] * 1000),
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
+            "voiceConfirmation": voice_confirmations.get(row["ticket_no"]),
         }
         for row in rows
     ]
@@ -1297,11 +1375,70 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         .assetList{height:655px;padding:12px;overflow:hidden}.ico{width:34px;height:34px;display:grid;place-items:center;border:1px solid #77bdaa;border-radius:50%;background:#e7f5f1;color:var(--g);font-size:11px;font-weight:700}.agentProfile{padding:18px 12px;border:1px solid #9ed2c4;border-radius:8px;background:linear-gradient(145deg,#e7f5f1,#fff);text-align:center}.agentAvatar{width:74px;height:74px;margin:0 auto 10px;display:grid;place-items:center;border:2px solid var(--b);border-radius:50%;background:linear-gradient(145deg,#009878,#006e59);color:#fff;font-size:20px;font-weight:700;box-shadow:0 8px 22px #007f6630}.agentProfile b{display:block;font-size:14px}.agentProfile small{display:block;margin-top:5px;color:var(--m);font-size:10px}.agentOnline{display:inline-block;margin-top:10px;padding:4px 10px;border-radius:12px;background:#dff4ed;color:var(--g);font-size:10px}.sectionTitle{margin:18px 2px 8px;color:var(--m);font-size:10px;letter-spacing:1px}.capability{height:43px;margin-bottom:6px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--l);border-radius:6px;background:#fafcfc;font-size:11px}.capability i{color:var(--b);font-size:9px;font-style:normal}.runtime{padding:11px;border-radius:6px;background:#edf7f4;color:#426e63;font-size:9px;line-height:2}.inbox{height:701px;overflow-y:auto;padding:10px}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--g);font-size:10px}.empty{padding:45px;text-align:center;color:var(--m);font-size:11px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--l);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--b)}.head{display:flex;justify-content:space-between}.head b{font-size:13px}.head span,.route,.meta{color:var(--m);font-size:10px}.route{margin:6px 0}.body{padding:10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:11px;line-height:1.75}.meta{margin-top:7px}.actions{display:flex;gap:6px;margin-top:9px}.actions button{height:31px;padding:0 12px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:10px;cursor:pointer}.actions .primary{border:0;background:var(--g);color:#fff}.chain{margin:11px;padding:16px;border:1px solid var(--l);background:#f8fbfa}.node{display:flex;gap:11px;align-items:center}.node small{display:block;color:var(--m);font-size:11px;line-height:1.5}.node b{font-size:14px;line-height:1.5}.flow{position:relative;height:34px;margin-left:17px;border-left:1px dashed var(--b);padding:10px 0 0 12px;color:var(--m);font-size:10px}.flow:after{content:"";position:absolute;left:-4px;top:0;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:var(--b);box-shadow:0 0 8px #00a779;animation:routeFlow 1.55s linear infinite}@keyframes routeFlow{from{top:-2px;opacity:.25}15%{opacity:1}85%{opacity:1}to{top:calc(100% - 5px);opacity:.25}}.health{margin:11px;padding:14px 16px;background:#e9f6f2;color:var(--g);font-size:11px;line-height:2.15}.foot{height:28px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-top:1px solid var(--l);color:var(--m);font-size:9px}
         .brand b{font-size:22px}.title small{font-size:11px}.title b{font-size:19px}.stat span{font-size:11px}.stat b{font-size:21px}.stat em{font-size:10px}.ph{font-size:14px}.ph small{font-size:10px}.countyFilters{height:51px;padding:6px 10px;display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;border-bottom:1px solid var(--l);background:#f7fbfa}.countyFilters label{color:var(--m);font-size:8px}.countyFilters select{display:block;width:100%;height:27px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:var(--t);font-size:8px}.countyFilterCount{padding-bottom:6px;color:var(--g);font-size:8px;white-space:nowrap}.countyFilters+.inbox{height:650px}
         .processing{display:none;position:fixed;z-index:40;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(4px);place-items:center}.processing.show{display:grid}.processingCard{width:390px;padding:30px;border:1px solid #9ed2c4;border-radius:12px;background:#fff;text-align:center;box-shadow:0 24px 70px #103f3645}.processingCard b{display:block;margin-top:14px;color:var(--t);font-size:15px}.processingCard p{margin:8px 0 0;color:var(--m);font-size:11px;line-height:1.8}.processingSpinner{width:42px;height:42px;margin:auto;border:4px solid #dceee9;border-top-color:var(--b);border-radius:50%;animation:processingSpin .8s linear infinite}@keyframes processingSpin{to{transform:rotate(360deg)}}
+        .voiceBack{display:none;position:fixed;z-index:35;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(3px);place-items:center}.voiceBack.show{display:grid}.voiceModal{width:min(700px,calc(100vw - 30px));max-height:780px;padding:22px;border-radius:12px;background:#fff;box-shadow:0 24px 70px #103f3645}.voiceHeader{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:1px solid var(--l)}.voiceHeader b{font-size:16px}.voiceHeader small{display:block;margin-top:5px;color:var(--m);font-size:10px}.voiceClose{border:0;background:transparent;font-size:23px;cursor:pointer}.voiceInstruction{margin:13px 0;padding:12px;background:#f3f8f7;border-left:3px solid var(--b);font-size:11px;line-height:1.7}.recorderBar{display:flex;gap:8px;align-items:center}.recorderBar button,.attempt button{height:34px;padding:0 13px;border:1px solid #afd3ca;border-radius:6px;background:#fff;color:var(--g);cursor:pointer}.recorderBar .recording{border-color:#c86161;background:#fff1f1;color:#a33}.recordHint{color:var(--m);font-size:10px}.attempts{max-height:320px;margin-top:13px;overflow:auto}.attempt{display:grid;grid-template-columns:28px 1fr auto auto;gap:9px;align-items:center;padding:10px;margin-bottom:8px;border:1px solid var(--l);border-radius:7px}.attempt.selected{border-color:var(--b);background:#eef8f5}.attempt audio{width:100%;height:34px}.attempt span{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#e4f5f0;color:var(--g);font-size:10px}.voiceSubmit{width:100%;height:40px;margin-top:13px;border:0;border-radius:6px;background:linear-gradient(105deg,var(--g),var(--b));color:#fff;font-weight:700;cursor:pointer}.voiceSubmit:disabled{opacity:.45;cursor:not-allowed}.voiceBadge{color:var(--g);font-weight:700}
         </style></head><body><div class="app"><header class="top"><div class="brand"><b>龙江电网 · __COUNTY__虚拟配网调度中心</b><small>COUNTY VIRTUAL DISPATCH NETWORK · 当前账号：nangang_county（区县级执行权限）</small></div><div style="display:flex;gap:8px"><button class="logout" onclick="startProcessing('正在刷新区县数据','正在同步操作票与链路状态');post({action:'refresh'})">刷新数据</button><button class="logout" onclick="startProcessing('正在安全退出','正在结束当前调度会话');post({action:'logout'})">退出账号</button></div></header>
         <section class="bar"><div class="title"><small>区县态势</small><b>__COUNTY__调度中心视角</b></div><div class="stats"><div class="stat"><span>区县智能体</span><b>1</b><em>在线</em></div><div class="stat"><span>待执行</span><b>__PENDING__</b><em>操作票</em></div><div class="stat"><span>已执行</span><b>__EXECUTED__</b><em>完成回令</em></div></div></section>
         <section class="work"><aside class="panel"><div class="ph"><span>区县智能体</span><small>1 / 1 在线</small></div><div class="assetList"><div class="agentProfile"><div class="agentAvatar">南岗</div><b>__COUNTY__调度智能体</b><small>账号：nangang_county</small><span class="agentOnline">● 当前在线</span></div><div class="sectionTitle">核心能力</div><div class="capability"><span>调度指令接收</span><i>正常</i></div><div class="capability"><span>操作票解析</span><i>正常</i></div><div class="capability"><span>AI 语音播报</span><i>可用</i></div><div class="capability"><span>执行回令</span><i>畅通</i></div><div class="sectionTitle">运行信息</div><div class="runtime">知识底座：已同步<br>在线判定窗口：30 秒<br>链路加密：已启用<br>权限级别：区县级执行</div></div></aside><main class="panel"><div class="ph"><span>市调下发操作票</span><small>历史记录筛选</small></div><div class="countyFilters"><label>时间范围<select id="countyTimeFilter" onchange="render()"><option value="">全部时间</option><option value="today">今天</option><option value="7d">近7天</option><option value="30d">近30天</option></select></label><label>执行状态<select id="countyStatusFilter" onchange="render()"><option value="">全部状态</option><option>已送达</option><option>已签收</option><option>已执行</option></select></label><span class="countyFilterCount" id="countyFilterCount"></span></div><div class="inbox" id="inbox"></div></main><aside class="panel"><div class="ph"><span>当前链路</span><small>● 加密通信</small></div><div class="chain"><div class="node"><span class="ico">省</span><div><small>上级源头</small><b>黑龙江省调度智能体</b></div></div><div class="flow">省市专线</div><div class="node"><span class="ico">哈</span><div><small>市级转发</small><b>哈尔滨市调度智能体</b></div></div><div class="flow">区县独立链路</div><div class="node"><span class="ico">区</span><div><small>当前接收</small><b>__COUNTY__调度智能体</b></div></div></div><div class="health">● 区县链路在线<br>● 操作票自动接收<br>● 语音服务可用<br>● 执行回令通道正常</div></aside></section><footer class="foot"><span>● __AGENT_STATE__</span><span>北京时间 · STREAMLIT DEMO</span></footer></div>
+        <div class="voiceBack" id="voiceBack"><section class="voiceModal"><div class="voiceHeader"><div><b>录制操作票语音确认</b><small id="voiceTicket"></small></div><button class="voiceClose" onclick="closeVoiceModal()">×</button></div><div class="voiceInstruction" id="voiceInstruction"></div><div class="recorderBar"><button id="recordButton" onclick="toggleRecording()">● 开始录音</button><span class="recordHint" id="recordHint">可以反复录制；失败录音不会上传。</span></div><div class="attempts" id="attempts"></div><button class="voiceSubmit" id="voiceSubmit" onclick="submitSelectedVoice()" disabled>选定录音并确认回令</button></section></div>
         <div class="processing" id="processing"><section class="processingCard"><div class="processingSpinner"></div><b id="processingTitle">区县智能体正在处理操作票</b><p id="processingDetail">正在同步任务状态<br>请稍候，不要重复点击或关闭页面</p></section></div>
-        <script>const messages=__MESSAGES__;let speaking=-1,visibleMessages=[...messages];const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}function processMessage(action,id){if(action==="ack")startProcessing("区县智能体正在签收操作票","正在校验操作票状态并登记签收记录");else startProcessing("正在提交执行回令","正在登记执行时间、操作账号并向上级智能体反馈结果");post({action,id})}function cutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}function render(){const box=document.getElementById("inbox"),timeValue=document.getElementById("countyTimeFilter").value,statusValue=document.getElementById("countyStatusFilter").value,start=cutoff(timeValue);visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;const pending=visibleMessages.filter(m=>m.status==="已送达").length;box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听"}</button>${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="processMessage('execute','${m.id}')">执行完成并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')}function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}render();setInterval(()=>{if(!document.querySelector(".processing.show"))post({action:"autoRefresh"})},5000);</script></body></html>
+        <script>
+        const messages=__MESSAGES__;
+        let speaking=-1,visibleMessages=[...messages],voiceMessage=null,mediaRecorder=null;
+        let recordingStarted=0,recordingChunks=[],attempts=[],selectedAttempt=-1,recordStopTimer=null;
+        const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
+        function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}
+        function processMessage(action,id){startProcessing("区县智能体正在签收操作票","正在校验操作票状态并登记签收记录");post({action,id})}
+        function cutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}
+        function render(){
+          const box=document.getElementById("inbox"),timeValue=document.getElementById("countyTimeFilter").value,statusValue=document.getElementById("countyStatusFilter").value,start=cutoff(timeValue);
+          visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));
+          document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;
+          const pending=visibleMessages.filter(m=>m.status==="已送达").length;
+          box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span class="voiceBadge">✓ 已上传所选语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playSavedVoice(${i})">▶ 播放回令录音</button>`:""}${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="openVoiceModal('${m.id}')">录音确认并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')
+        }
+        function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}
+        function playSavedVoice(i){const voice=visibleMessages[i].voiceConfirmation;if(voice?.audio_data_url)new Audio(voice.audio_data_url).play()}
+        function openVoiceModal(id){
+          voiceMessage=messages.find(m=>m.id===id);attempts=[];selectedAttempt=-1;
+          document.getElementById("voiceTicket").textContent=`操作票号：${voiceMessage.ticket}`;
+          document.getElementById("voiceInstruction").textContent=`请完整朗读并确认：${voiceMessage.content}`;
+          document.getElementById("voiceBack").classList.add("show");renderAttempts()
+        }
+        function closeVoiceModal(){if(mediaRecorder?.state==="recording")mediaRecorder.stop();document.getElementById("voiceBack").classList.remove("show")}
+        async function toggleRecording(){
+          if(mediaRecorder?.state==="recording"){mediaRecorder.stop();return}
+          if(!navigator.mediaDevices?.getUserMedia){alert("当前浏览器不支持录音，请使用最新版 Chrome 或 Edge。");return}
+          try{
+            const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+            const mime=["audio/webm;codecs=opus","audio/webm","audio/mp4"].find(t=>MediaRecorder.isTypeSupported(t))||"";
+            mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recordingChunks=[];recordingStarted=Date.now();
+            mediaRecorder.ondataavailable=e=>{if(e.data.size)recordingChunks.push(e.data)};
+            mediaRecorder.onstop=()=>{
+              const blob=new Blob(recordingChunks,{type:mediaRecorder.mimeType||"audio/webm"}),reader=new FileReader();
+              reader.onload=()=>{attempts.push({dataUrl:reader.result,url:URL.createObjectURL(blob),mimeType:blob.type,durationMs:Date.now()-recordingStarted});selectedAttempt=attempts.length-1;renderAttempts()};
+              reader.readAsDataURL(blob);stream.getTracks().forEach(track=>track.stop());
+              clearTimeout(recordStopTimer);document.getElementById("recordButton").textContent="● 再录一条";document.getElementById("recordButton").classList.remove("recording");
+              document.getElementById("recordHint").textContent="录音已保留在本机，请试听后选择满意版本。"
+            };
+            mediaRecorder.start();recordStopTimer=setTimeout(()=>{if(mediaRecorder?.state==="recording")mediaRecorder.stop()},90000);document.getElementById("recordButton").textContent="■ 停止录音";document.getElementById("recordButton").classList.add("recording");document.getElementById("recordHint").textContent="正在录音… 最长 90 秒，届时自动停止。"
+          }catch(error){alert("无法使用麦克风，请在浏览器地址栏允许此网站使用麦克风后重试。")}
+        }
+        function renderAttempts(){
+          const box=document.getElementById("attempts");
+          box.innerHTML=attempts.length?attempts.map((a,i)=>`<div class="attempt ${i===selectedAttempt?"selected":""}"><span>${i+1}</span><audio controls preload="metadata" src="${a.url}"></audio><button onclick="selectAttempt(${i})">${i===selectedAttempt?"已选择":"选择"}</button><button onclick="removeAttempt(${i})">删除</button></div>`).join(""):'<div class="empty">尚未录音。你可以录制多条，试听后只上传选中的一条。</div>';
+          document.getElementById("voiceSubmit").disabled=selectedAttempt<0
+        }
+        function selectAttempt(i){selectedAttempt=i;renderAttempts()}
+        function removeAttempt(i){URL.revokeObjectURL(attempts[i].url);attempts.splice(i,1);selectedAttempt=attempts.length?Math.min(i,attempts.length-1):-1;renderAttempts()}
+        function submitSelectedVoice(){
+          const attempt=attempts[selectedAttempt];if(!voiceMessage||!attempt)return;
+          document.getElementById("voiceBack").classList.remove("show");
+          startProcessing("正在提交语音确认回令","正在上传所选录音、登记执行账号并同步至市级和省级智能体");
+          post({action:"executeWithVoice",id:voiceMessage.id,audioDataUrl:attempt.dataUrl,mimeType:attempt.mimeType,durationMs:attempt.durationMs})
+        }
+        render();setInterval(()=>{if(!document.querySelector(".processing.show,.voiceBack.show"))post({action:"autoRefresh"})},5000);
+        </script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("nangang_county", username).replace(
         '<div class="agentAvatar">南岗</div>',
@@ -1335,11 +1472,25 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
                     )
                 st.rerun()
             message = next((row for row in rows if row["id"] == result.get("id")), None)
-            if message is not None and action in {"ack", "execute"}:
-                acknowledge_message(message["id"]) if action == "ack" else execute_message(
-                    message["id"],
-                    st.session_state.get("auth_username") or "nangang_county",
-                )
+            if message is not None and action == "ack":
+                acknowledge_message(message["id"])
+                st.rerun()
+            if message is not None and action == "executeWithVoice":
+                try:
+                    operator = st.session_state.get("auth_username") or "nangang_county"
+                    save_voice_confirmation(
+                        message,
+                        str(result.get("audioDataUrl") or ""),
+                        str(result.get("mimeType") or "audio/webm"),
+                        int(result.get("durationMs") or 0),
+                        operator,
+                    )
+                    execute_message(message["id"], operator)
+                    st.session_state["county_voice_success"] = (
+                        "语音确认已随执行回令同步至市级和省级。"
+                    )
+                except Exception as error:
+                    st.session_state["county_voice_error"] = f"语音回令未提交：{error}"
                 st.rerun()
 
 
@@ -1750,6 +1901,9 @@ for city in CITIES:
 online_city_count = sum(1 for city in CITIES if city["online"])
 
 all_dispatch_messages = load_messages()
+province_voice_confirmations = load_voice_confirmations(
+    [row["ticket_no"] for row in all_dispatch_messages]
+)
 today_command_count, today_delivery_text = load_today_dispatch_stats(
     all_dispatch_messages
 )
@@ -1777,6 +1931,7 @@ recent_dispatches = [
         "status": row["status"],
         "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
         "executedBy": row["executed_by"] or "",
+        "voiceConfirmation": province_voice_confirmations.get(row["ticket_no"]),
     }
     for row in all_dispatch_messages
 ]
@@ -2292,9 +2447,10 @@ html = dedent(
     function renderRecent(){
       const box=document.getElementById("recentMessages");
       if(!filteredMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">没有符合筛选条件的调度指令</div>';return}
-      box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.method==="province"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听语音"}</em></button><div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}</div></div>`).join("");
+      box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.method==="province"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听指令"}</em></button>${m.voiceConfirmation?`<button class="audio confirmationAudio" data-confirmation="${i}"><span class="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>区县回令录音</em></button>`:""}<div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}${m.voiceConfirmation?`<br>语音：已确认`:""}</div></div>`).join("");
       box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=filteredMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
-      box.querySelectorAll(".audio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
+      box.querySelectorAll(".audio:not(.confirmationAudio)").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
+      box.querySelectorAll(".confirmationAudio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const voice=filteredMessages[Number(btn.dataset.confirmation)].voiceConfirmation;if(voice?.audio_data_url)new Audio(voice.audio_data_url).play()});raiseFonts();
     }
     function toggleMessageSpeech(index){
       if(!("speechSynthesis" in window))return;
