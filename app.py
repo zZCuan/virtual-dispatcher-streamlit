@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import sqlite3
 import time
 import uuid
+import zipfile
 from datetime import datetime, time as datetime_time
 from pathlib import Path
 from textwrap import dedent
+from xml.sax.saxutils import escape as xml_escape
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -284,6 +288,97 @@ def beijing_datetime(timestamp: float | None = None) -> datetime:
 
 def format_beijing_time(timestamp: float, pattern: str = "%m-%d %H:%M:%S") -> str:
     return beijing_datetime(timestamp).strftime(pattern)
+
+
+def build_docx_data_url(text: str) -> str:
+    """Create a compact, dependency-free DOCX download URL for one ticket."""
+    paragraphs = []
+    for line in text.splitlines():
+        if line:
+            paragraphs.append(
+                '<w:p><w:r><w:rPr><w:rFonts w:ascii="Microsoft YaHei" '
+                'w:eastAsia="Microsoft YaHei"/></w:rPr>'
+                f'<w:t xml:space="preserve">{xml_escape(line)}</w:t></w:r></w:p>'
+            )
+        else:
+            paragraphs.append("<w:p/>")
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f'<w:body>{"".join(paragraphs)}'
+        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>'
+        '</w:body></w:document>'
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '</Types>'
+    )
+    relationships = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/></Relationships>'
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", relationships)
+        archive.writestr("word/document.xml", document_xml)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return (
+        "data:application/vnd.openxmlformats-officedocument."
+        f"wordprocessingml.document;base64,{encoded}"
+    )
+
+
+def build_ticket_export(
+    *,
+    title: str,
+    ticket_no: str,
+    sender: str,
+    receiver: str,
+    target_county: str,
+    status: str,
+    created_at: float,
+    content: str,
+    executed_at: float | None = None,
+    executed_by: str = "",
+    dispatch_method: str = "",
+) -> dict[str, str]:
+    fields = [
+        ("调度任务", title),
+        ("操作票号", ticket_no),
+    ]
+    if dispatch_method:
+        fields.append(("下发方式", dispatch_method))
+    fields.extend(
+        [
+            ("发送智能体", sender),
+            ("接收智能体", receiver),
+            ("目标区县", target_county or "—"),
+            ("当前状态", status),
+            ("下发时间（北京时间）", format_beijing_time(created_at, "%Y-%m-%d %H:%M:%S")),
+            (
+                "执行时间（北京时间）",
+                format_beijing_time(executed_at, "%Y-%m-%d %H:%M:%S")
+                if executed_at
+                else "尚未执行",
+            ),
+            ("执行账号", executed_by or "尚未回令"),
+        ]
+    )
+    text = "操作票 / 调度指令\n" + "\n".join(
+        f"{label}：{value}" for label, value in fields
+    )
+    text += f"\n\n操作票正文\n{content}"
+    return {"exportText": text, "docxDataUrl": build_docx_data_url(text)}
 
 
 def message_field(message: sqlite3.Row | dict, key: str, default=None):
@@ -1156,6 +1251,13 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
             "voiceConfirmation": voice_confirmations.get(row["ticket_no"]),
+            **build_ticket_export(
+                title=row["title"], ticket_no=row["ticket_no"],
+                sender=row["sender"], receiver=row["receiver"],
+                target_county=row["target_county"], status=row["status"],
+                created_at=row["created_at"], content=row["content"],
+                executed_at=row["executed_at"], executed_by=row["executed_by"] or "",
+            ),
         }
         for row in rows
     ]
@@ -1173,7 +1275,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         .bar{height:82px;padding:0 28px;display:flex;align-items:center;background:#fff;border-bottom:1px solid var(--line)}.title{min-width:230px}.title small{display:block;color:var(--green);font-size:8px;letter-spacing:2px}.title b{font-size:17px}.stats{display:flex;flex:1}.stat{min-width:135px;padding:0 25px;border-left:1px solid var(--line)}.stat span{display:block;color:var(--muted);font-size:8px}.stat b{font-size:21px;color:var(--green)}.stat em{font-size:8px;color:var(--bright);font-style:normal;margin-left:5px}.new{height:40px;padding:0 18px;border:0;border-radius:7px;background:linear-gradient(105deg,var(--green),var(--bright));color:#fff;font-size:10px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px #007f6630}
         .work{flex:1;display:grid;grid-template-columns:260px minmax(550px,1fr) 290px;gap:11px;padding:11px 15px;min-height:0}.panel{background:#fff;border:1px solid var(--line);overflow:hidden;box-shadow:0 4px 14px #1c4a400f}.ph{height:46px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-bottom:1px solid var(--line);font-size:11px;font-weight:700}.ph small{font-size:8px;color:var(--bright);font-weight:400}
         .countyList{height:655px;padding:7px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.county{height:52px;margin-bottom:4px;padding:7px 9px;display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:8px;border:1px solid transparent;border-radius:5px}.county:hover,.county.active{background:#e7f5f1;border-color:#a8d8cb}.avatar{width:31px;height:31px;display:grid;place-items:center;border:1px solid #77bdaa;border-radius:50%;background:#e7f5f1;color:var(--green);font-weight:700}.county b{font-size:10px}.county small{display:block;color:#78918b;font-size:7px}.online{color:var(--bright);font-size:7px}
-        .recordTabs{display:flex;gap:5px}.recordTabs button{padding:5px 9px;border:1px solid #b9d8d0;border-radius:4px;background:#fff;color:#55766f;font-size:8px;cursor:pointer}.recordTabs button.active{border-color:var(--green);background:var(--green);color:#fff}.localFilters{padding:7px 10px;display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;border-bottom:1px solid var(--line);background:#f7fbfa}.localFilters label{color:var(--muted);font-size:8px}.localFilters select{display:block;width:100%;height:28px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:var(--text);font-size:8px}.filterCount{padding-bottom:6px;color:var(--green);font-size:8px;white-space:nowrap}.inbox{height:650px;overflow-y:auto;padding:10px;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--green);font-size:9px}.empty{padding:45px;text-align:center;color:var(--muted);font-size:10px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--line);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--bright);box-shadow:0 4px 13px #007f6615}.head{display:flex;justify-content:space-between}.head b{font-size:11px}.head span,.route{color:var(--muted);font-size:8px}.route{margin:6px 0}.body{padding:9px 10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:9px;line-height:1.7}.meta{margin-top:7px;color:var(--muted);font-size:8px}.actions{display:flex;gap:6px;margin-top:9px}.actions button{height:30px;padding:0 11px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:8px;cursor:pointer}.actions button.primary{border:0;background:var(--green);color:#fff}.actions button:hover{border-color:var(--bright)}
+        .recordTabs{display:flex;gap:5px}.recordTabs button{padding:5px 9px;border:1px solid #b9d8d0;border-radius:4px;background:#fff;color:#55766f;font-size:8px;cursor:pointer}.recordTabs button.active{border-color:var(--green);background:var(--green);color:#fff}.localFilters{padding:7px 10px;display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;border-bottom:1px solid var(--line);background:#f7fbfa}.localFilters label{color:var(--muted);font-size:8px}.localFilters select{display:block;width:100%;height:28px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:var(--text);font-size:8px}.filterCount{padding-bottom:6px;color:var(--green);font-size:8px;white-space:nowrap}.inbox{height:650px;overflow-y:auto;padding:10px;scrollbar-width:thin;scrollbar-color:#8fc9ba #edf5f3}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--green);font-size:9px}.empty{padding:45px;text-align:center;color:var(--muted);font-size:10px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--line);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--bright);box-shadow:0 4px 13px #007f6615}.head{display:flex;justify-content:space-between}.head b{font-size:11px}.head span,.route{color:var(--muted);font-size:8px}.route{margin:6px 0}.body{padding:9px 10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:9px;line-height:1.7}.meta{margin-top:7px;color:var(--muted);font-size:8px}.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.actions button{height:30px;padding:0 11px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:8px;cursor:pointer}.actions button.primary{border:0;background:var(--green);color:#fff}.actions button:hover{border-color:var(--bright)}
         .chain{margin:11px;padding:14px;border:1px solid var(--line);background:#f8fbfa}.node{display:flex;gap:9px;align-items:center}.ico{width:29px;height:29px;display:grid;place-items:center;border:1px solid #86c5b5;border-radius:50%;background:#e4f5f0;color:var(--green);font-size:8px}.node small{display:block;color:var(--muted);font-size:7px}.node b{font-size:9px}.flow{position:relative;height:29px;margin-left:14px;border-left:1px dashed var(--bright);padding:9px;color:var(--muted);font-size:7px}.flow:after{content:"";position:absolute;left:-4px;top:0;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:var(--bright);box-shadow:0 0 8px #00a779;animation:routeFlow 1.55s linear infinite}@keyframes routeFlow{from{top:-2px;opacity:.25}15%{opacity:1}85%{opacity:1}to{top:calc(100% - 5px);opacity:.25}}.health{margin:11px;padding:12px;background:#e9f6f2;color:var(--green);font-size:8px;line-height:2}
         .back{display:none;position:fixed;z-index:20;inset:0;background:#123d3466;place-items:center}.back.show{display:grid}.modal{width:min(650px,calc(100vw - 30px));padding:20px;border-radius:10px;background:#fff;box-shadow:0 24px 70px #103f363d}.mh{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}.close{border:0;background:none;font-size:22px}.field{margin-top:12px}.field label{display:block;margin-bottom:5px;color:var(--muted);font-size:9px}.field select,.field input,.field textarea{width:100%;padding:9px;border:1px solid #bddbd3;color:var(--text);background:#fff}.field textarea{height:110px;resize:vertical}.send{width:100%;height:38px;margin-top:13px;border:0;border-radius:6px;background:var(--green);color:#fff;cursor:pointer}
         .processing{display:none;position:fixed;z-index:40;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(4px);place-items:center}.processing.show{display:grid}.processingCard{width:390px;padding:30px;border:1px solid #9ed2c4;border-radius:12px;background:#fff;text-align:center;box-shadow:0 24px 70px #103f3645}.processingCard b{display:block;margin-top:14px;color:var(--text);font-size:15px}.processingCard p{margin:8px 0 0;color:var(--muted);font-size:11px;line-height:1.8}.processingSpinner{width:42px;height:42px;margin:auto;border:4px solid #dceee9;border-top-color:var(--bright);border-radius:50%;animation:processingSpin .8s linear infinite}@keyframes processingSpin{to{transform:rotate(360deg)}}
@@ -1195,13 +1297,15 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         <script>
         const counties=__COUNTIES__,onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__;let selectedCounty="",recordType=__INITIAL_RECORD_TYPE__,speaking=-1,confirmationAudio=null,confirmationIndex=-1;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        function exportName(m){return String(m.ticket||m.ticketNo||m.title||"操作票").replace(/[\\/:*?"<>|]/g,"_")}
+        function downloadTicket(m,type){const a=document.createElement("a"),name=exportName(m);if(type==="docx"){a.href=m.docxDataUrl;a.download=name+".docx"}else{const blob=new Blob(["\ufeff"+(m.exportText||"")],{type:"text/plain;charset=utf-8"});a.href=URL.createObjectURL(blob);a.download=name+".txt";setTimeout(()=>URL.revokeObjectURL(a.href),1500)}document.body.appendChild(a);a.click();a.remove()}
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
         function raiseFonts(){}
         function renderCounties(){document.getElementById("countyList").innerHTML=counties.map(c=>{const on=onlineCounties.has(c);return `<div class="county ${c===selectedCounty?"active":""}" onclick="selectCounty('${c}')"><span class="avatar">区</span><span><b>${c}</b><small>独立调度智能体</small></span><i class="online" style="color:${on?"#00a779":"#a0ada9"}">● ${on?"在线":"离线"}</i></div>`}).join("");raiseFonts()}
         function selectCounty(c){selectedCounty=selectedCounty===c?"":c;document.getElementById("chainCounty").textContent=selectedCounty?selectedCounty+"智能体":"目标区县智能体";renderCounties();renderInbox()}
         function setRecordType(type){recordType=type;document.getElementById("incomingTab").classList.toggle("active",type==="incoming");document.getElementById("outgoingTab").classList.toggle("active",type==="outgoing");renderInbox()}
         function filterCutoff(value){const now=Date.now();if(value==="7d")return now-7*86400000;if(value==="30d")return now-30*86400000;if(value==="today"){const p=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(x=>[x.type,x.value]));return Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00+08:00`)}return 0}
-        function renderInbox(){const box=document.getElementById("inbox"),timeValue=document.getElementById("cityTimeFilter").value,statusValue=document.getElementById("cityStatusFilter").value,cutoff=filterCutoff(timeValue),visible=messages.filter(m=>m.direction===recordType&&(!selectedCounty||m.county===selectedCounty)&&(!statusValue||m.status===statusValue)&&(!cutoff||m.createdAt>=cutoff)),newCount=visible.filter(m=>m.direction==="incoming"&&m.status==="已送达").length;document.getElementById("cityFilterCount").textContent=`${visible.length} 条`;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m),incoming=m.direction==="incoming",route=incoming?`${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体`:`哈尔滨市调度中心 → ${esc(m.county)}调度智能体`;return `<article class="card ${incoming&&m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${route}</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span style="color:#007f66;font-weight:700">✓ 区县已提交语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playConfirmation(${i})">▶ 播放回令录音</button>`:""}${incoming&&m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}','${esc(m.county)}')">签收指令</button>`:""}${incoming&&m.status==="已签收"?`<button class="primary" onclick="processMessage('forward','${m.id}','${esc(m.county)}')">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty:"当前"}暂无${recordType==="incoming"?"省调接收":"市调下发"}操作票记录。</div>`);raiseFonts()}
+        function renderInbox(){const box=document.getElementById("inbox"),timeValue=document.getElementById("cityTimeFilter").value,statusValue=document.getElementById("cityStatusFilter").value,cutoff=filterCutoff(timeValue),visible=messages.filter(m=>m.direction===recordType&&(!selectedCounty||m.county===selectedCounty)&&(!statusValue||m.status===statusValue)&&(!cutoff||m.createdAt>=cutoff)),newCount=visible.filter(m=>m.direction==="incoming"&&m.status==="已送达").length;document.getElementById("cityFilterCount").textContent=`${visible.length} 条`;box.innerHTML=(newCount?`<div class="notice">${selectedCounty||"全部区县"}有 ${newCount} 条新调度指令，请及时签收并转发。</div>`:"")+(visible.length?visible.map(m=>{const i=messages.indexOf(m),incoming=m.direction==="incoming",route=incoming?`${esc(m.sender)} → 哈尔滨市调度中心 → ${esc(m.county)}智能体`:`哈尔滨市调度中心 → ${esc(m.county)}调度智能体`;return `<article class="card ${incoming&&m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">${route}</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span style="color:#007f66;font-weight:700">✓ 区县已提交语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playConfirmation(${i})">▶ 播放回令录音</button>`:""}<button onclick="downloadTicket(messages[${i}],'docx')">导出 DOCX</button><button onclick="downloadTicket(messages[${i}],'txt')">导出 TXT</button>${incoming&&m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}','${esc(m.county)}')">签收指令</button>`:""}${incoming&&m.status==="已签收"?`<button class="primary" onclick="processMessage('forward','${m.id}','${esc(m.county)}')">转发至${esc(m.county)}</button>`:""}</div></article>`}).join(""):`<div class="empty">${selectedCounty?selectedCounty:"当前"}暂无${recordType==="incoming"?"省调接收":"市调下发"}操作票记录。</div>`);raiseFonts()}
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;renderInbox();return}speechSynthesis.cancel();speaking=i;renderInbox();const u=new SpeechSynthesisUtterance(messages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;renderInbox()};speechSynthesis.speak(u)}
         function playConfirmation(i){const voice=messages[i].voiceConfirmation;if(!voice?.audio_data_url)return;if(confirmationAudio){confirmationAudio.pause();confirmationAudio.currentTime=0;confirmationAudio=null;const wasSame=confirmationIndex===i;confirmationIndex=-1;renderInbox();if(wasSame)return}confirmationIndex=i;confirmationAudio=new Audio(voice.audio_data_url);confirmationAudio.onended=confirmationAudio.onerror=()=>{confirmationAudio=null;confirmationIndex=-1;renderInbox()};confirmationAudio.play();renderInbox();const btn=document.querySelector(`button[onclick="playConfirmation(${i})"]`);if(btn)btn.textContent="■ 停止回令录音"}
         function openModal(){const target=selectedCounty||"南岗区";document.getElementById("targetCounty").innerHTML=counties.map(c=>`<option ${c===target?"selected":""}>${c}</option>`).join("");document.getElementById("modal").classList.add("show")}function closeModal(){document.getElementById("modal").classList.remove("show")}
@@ -1363,6 +1467,13 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
             "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
             "executedBy": row["executed_by"] or "",
             "voiceConfirmation": voice_confirmations.get(row["ticket_no"]),
+            **build_ticket_export(
+                title=row["title"], ticket_no=row["ticket_no"],
+                sender=row["sender"], receiver=row["receiver"],
+                target_county=row["target_county"], status=row["status"],
+                created_at=row["created_at"], content=row["content"],
+                executed_at=row["executed_at"], executed_by=row["executed_by"] or "",
+            ),
         }
         for row in rows
     ]
@@ -1372,7 +1483,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         r"""
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
         :root{--g:#007f66;--b:#00a779;--t:#193a33;--m:#708a84;--l:#d6e5e1;--bg:#eef5f3}*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--t);font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;overflow:hidden}button{font:inherit}.app{height:930px;display:flex;flex-direction:column}.top{height:70px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(105deg,#006c58,#169b79);color:#fff}.brand b{font-size:20px;letter-spacing:2px}.brand small{display:block;margin-top:5px;color:#ccebe3;font-size:10px;letter-spacing:2px}.logout{padding:8px 15px;border:1px solid #ffffff88;border-radius:6px;color:#fff;background:#ffffff12;cursor:pointer}.bar{height:82px;padding:0 28px;display:flex;align-items:center;background:#fff;border-bottom:1px solid var(--l)}.title{min-width:230px}.title small{display:block;color:var(--g);font-size:10px;letter-spacing:2px}.title b{font-size:19px}.stats{display:flex;flex:1}.stat{min-width:145px;padding:0 25px;border-left:1px solid var(--l)}.stat span{display:block;color:var(--m);font-size:10px}.stat b{font-size:22px;color:var(--g)}.stat em{font-size:10px;color:var(--b);font-style:normal;margin-left:5px}.work{flex:1;display:grid;grid-template-columns:260px minmax(550px,1fr) 290px;gap:11px;padding:11px 15px;min-height:0}.panel{background:#fff;border:1px solid var(--l);overflow:hidden;box-shadow:0 4px 14px #1c4a400f}.ph{height:46px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-bottom:1px solid var(--l);font-size:13px;font-weight:700}.ph small{font-size:10px;color:var(--b);font-weight:400}
-        .assetList{height:655px;padding:12px;overflow:hidden}.ico{width:34px;height:34px;display:grid;place-items:center;border:1px solid #77bdaa;border-radius:50%;background:#e7f5f1;color:var(--g);font-size:11px;font-weight:700}.agentProfile{padding:18px 12px;border:1px solid #9ed2c4;border-radius:8px;background:linear-gradient(145deg,#e7f5f1,#fff);text-align:center}.agentAvatar{width:74px;height:74px;margin:0 auto 10px;display:grid;place-items:center;border:2px solid var(--b);border-radius:50%;background:linear-gradient(145deg,#009878,#006e59);color:#fff;font-size:20px;font-weight:700;box-shadow:0 8px 22px #007f6630}.agentProfile b{display:block;font-size:14px}.agentProfile small{display:block;margin-top:5px;color:var(--m);font-size:10px}.agentOnline{display:inline-block;margin-top:10px;padding:4px 10px;border-radius:12px;background:#dff4ed;color:var(--g);font-size:10px}.sectionTitle{margin:18px 2px 8px;color:var(--m);font-size:10px;letter-spacing:1px}.capability{height:43px;margin-bottom:6px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--l);border-radius:6px;background:#fafcfc;font-size:11px}.capability i{color:var(--b);font-size:9px;font-style:normal}.runtime{padding:11px;border-radius:6px;background:#edf7f4;color:#426e63;font-size:9px;line-height:2}.inbox{height:701px;overflow-y:auto;padding:10px}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--g);font-size:10px}.empty{padding:45px;text-align:center;color:var(--m);font-size:11px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--l);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--b)}.head{display:flex;justify-content:space-between}.head b{font-size:13px}.head span,.route,.meta{color:var(--m);font-size:10px}.route{margin:6px 0}.body{padding:10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:11px;line-height:1.75}.meta{margin-top:7px}.actions{display:flex;gap:6px;margin-top:9px}.actions button{height:31px;padding:0 12px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:10px;cursor:pointer}.actions .primary{border:0;background:var(--g);color:#fff}.chain{margin:11px;padding:16px;border:1px solid var(--l);background:#f8fbfa}.node{display:flex;gap:11px;align-items:center}.node small{display:block;color:var(--m);font-size:11px;line-height:1.5}.node b{font-size:14px;line-height:1.5}.flow{position:relative;height:34px;margin-left:17px;border-left:1px dashed var(--b);padding:10px 0 0 12px;color:var(--m);font-size:10px}.flow:after{content:"";position:absolute;left:-4px;top:0;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:var(--b);box-shadow:0 0 8px #00a779;animation:routeFlow 1.55s linear infinite}@keyframes routeFlow{from{top:-2px;opacity:.25}15%{opacity:1}85%{opacity:1}to{top:calc(100% - 5px);opacity:.25}}.health{margin:11px;padding:14px 16px;background:#e9f6f2;color:var(--g);font-size:11px;line-height:2.15}.foot{height:28px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-top:1px solid var(--l);color:var(--m);font-size:9px}
+        .assetList{height:655px;padding:12px;overflow:hidden}.ico{width:34px;height:34px;display:grid;place-items:center;border:1px solid #77bdaa;border-radius:50%;background:#e7f5f1;color:var(--g);font-size:11px;font-weight:700}.agentProfile{padding:18px 12px;border:1px solid #9ed2c4;border-radius:8px;background:linear-gradient(145deg,#e7f5f1,#fff);text-align:center}.agentAvatar{width:74px;height:74px;margin:0 auto 10px;display:grid;place-items:center;border:2px solid var(--b);border-radius:50%;background:linear-gradient(145deg,#009878,#006e59);color:#fff;font-size:20px;font-weight:700;box-shadow:0 8px 22px #007f6630}.agentProfile b{display:block;font-size:14px}.agentProfile small{display:block;margin-top:5px;color:var(--m);font-size:10px}.agentOnline{display:inline-block;margin-top:10px;padding:4px 10px;border-radius:12px;background:#dff4ed;color:var(--g);font-size:10px}.sectionTitle{margin:18px 2px 8px;color:var(--m);font-size:10px;letter-spacing:1px}.capability{height:43px;margin-bottom:6px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--l);border-radius:6px;background:#fafcfc;font-size:11px}.capability i{color:var(--b);font-size:9px;font-style:normal}.runtime{padding:11px;border-radius:6px;background:#edf7f4;color:#426e63;font-size:9px;line-height:2}.inbox{height:701px;overflow-y:auto;padding:10px}.notice{padding:10px 12px;margin-bottom:8px;border-radius:5px;background:#e6f5f0;color:var(--g);font-size:10px}.empty{padding:45px;text-align:center;color:var(--m);font-size:11px}.card{padding:13px;margin-bottom:9px;border:1px solid var(--l);border-left:4px solid #a9cfc5;background:#fff}.card.newmsg{border-left-color:var(--b)}.head{display:flex;justify-content:space-between}.head b{font-size:13px}.head span,.route,.meta{color:var(--m);font-size:10px}.route{margin:6px 0}.body{padding:10px;background:#f5f9f8;border-left:2px solid #9acbbf;font-size:11px;line-height:1.75}.meta{margin-top:7px}.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.actions button{height:31px;padding:0 12px;border:1px solid #b9d8d0;border-radius:5px;background:#fff;color:#286356;font-size:10px;cursor:pointer}.actions .primary{border:0;background:var(--g);color:#fff}.chain{margin:11px;padding:16px;border:1px solid var(--l);background:#f8fbfa}.node{display:flex;gap:11px;align-items:center}.node small{display:block;color:var(--m);font-size:11px;line-height:1.5}.node b{font-size:14px;line-height:1.5}.flow{position:relative;height:34px;margin-left:17px;border-left:1px dashed var(--b);padding:10px 0 0 12px;color:var(--m);font-size:10px}.flow:after{content:"";position:absolute;left:-4px;top:0;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:var(--b);box-shadow:0 0 8px #00a779;animation:routeFlow 1.55s linear infinite}@keyframes routeFlow{from{top:-2px;opacity:.25}15%{opacity:1}85%{opacity:1}to{top:calc(100% - 5px);opacity:.25}}.health{margin:11px;padding:14px 16px;background:#e9f6f2;color:var(--g);font-size:11px;line-height:2.15}.foot{height:28px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#f7fbfa;border-top:1px solid var(--l);color:var(--m);font-size:9px}
         .brand b{font-size:22px}.title small{font-size:11px}.title b{font-size:19px}.stat span{font-size:11px}.stat b{font-size:21px}.stat em{font-size:10px}.ph{font-size:14px}.ph small{font-size:10px}.countyFilters{height:51px;padding:6px 10px;display:grid;grid-template-columns:1fr 1fr auto;gap:7px;align-items:end;border-bottom:1px solid var(--l);background:#f7fbfa}.countyFilters label{color:var(--m);font-size:8px}.countyFilters select{display:block;width:100%;height:27px;margin-top:3px;border:1px solid #bddbd3;background:#fff;color:var(--t);font-size:8px}.countyFilterCount{padding-bottom:6px;color:var(--g);font-size:8px;white-space:nowrap}.countyFilters+.inbox{height:650px}
         .processing{display:none;position:fixed;z-index:40;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(4px);place-items:center}.processing.show{display:grid}.processingCard{width:390px;padding:30px;border:1px solid #9ed2c4;border-radius:12px;background:#fff;text-align:center;box-shadow:0 24px 70px #103f3645}.processingCard b{display:block;margin-top:14px;color:var(--t);font-size:15px}.processingCard p{margin:8px 0 0;color:var(--m);font-size:11px;line-height:1.8}.processingSpinner{width:42px;height:42px;margin:auto;border:4px solid #dceee9;border-top-color:var(--b);border-radius:50%;animation:processingSpin .8s linear infinite}@keyframes processingSpin{to{transform:rotate(360deg)}}
         .voiceBack{display:none;position:fixed;z-index:35;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(3px);place-items:center}.voiceBack.show{display:grid}.voiceModal{width:min(700px,calc(100vw - 30px));max-height:780px;padding:22px;border-radius:12px;background:#fff;box-shadow:0 24px 70px #103f3645}.voiceHeader{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:1px solid var(--l)}.voiceHeader b{font-size:16px}.voiceHeader small{display:block;margin-top:5px;color:var(--m);font-size:10px}.voiceClose{border:0;background:transparent;font-size:23px;cursor:pointer}.voiceInstruction{margin:13px 0;padding:12px;background:#f3f8f7;border-left:3px solid var(--b);font-size:11px;line-height:1.7}.microphoneRow{display:grid;grid-template-columns:90px 1fr;gap:9px;align-items:center;margin-bottom:10px;color:var(--m);font-size:10px}.microphoneRow select{height:34px;padding:0 9px;border:1px solid #afd3ca;border-radius:6px;background:#fff;color:var(--t)}.recorderBar{display:flex;gap:8px;align-items:center}.recorderBar button,.attempt button{height:34px;padding:0 13px;border:1px solid #afd3ca;border-radius:6px;background:#fff;color:var(--g);cursor:pointer}.recorderBar .recording{border-color:#c86161;background:#fff1f1;color:#a33}.recordHint{color:var(--m);font-size:10px}.attempts{max-height:320px;margin-top:13px;overflow:auto}.attempt{display:grid;grid-template-columns:28px 1fr auto auto;gap:9px;align-items:center;padding:10px;margin-bottom:8px;border:1px solid var(--l);border-radius:7px}.attempt.selected{border-color:var(--b);background:#eef8f5}.attempt audio{width:100%;height:34px}.attempt span{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#e4f5f0;color:var(--g);font-size:10px}.voiceSubmit{width:100%;height:40px;margin-top:13px;border:0;border-radius:6px;background:linear-gradient(105deg,var(--g),var(--b));color:#fff;font-weight:700;cursor:pointer}.voiceSubmit:disabled{opacity:.45;cursor:not-allowed}.voiceBadge{color:var(--g);font-weight:700}
@@ -1386,6 +1497,8 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         let speaking=-1,visibleMessages=[...messages],voiceMessage=null,mediaRecorder=null,savedVoiceAudio=null,savedVoiceIndex=-1;
         let recordingStarted=0,recordingChunks=[],attempts=[],selectedAttempt=-1,recordStopTimer=null;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        function exportName(m){return String(m.ticket||m.ticketNo||m.title||"操作票").replace(/[\\/:*?"<>|]/g,"_")}
+        function downloadTicket(m,type){const a=document.createElement("a"),name=exportName(m);if(type==="docx"){a.href=m.docxDataUrl;a.download=name+".docx"}else{const blob=new Blob(["\ufeff"+(m.exportText||"")],{type:"text/plain;charset=utf-8"});a.href=URL.createObjectURL(blob);a.download=name+".txt";setTimeout(()=>URL.revokeObjectURL(a.href),1500)}document.body.appendChild(a);a.click();a.remove()}
         function post(data){window.parent.postMessage({type:"networkTarget",nonce:Date.now(),...data},"*")}
         function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}
         function processMessage(action,id){startProcessing("区县智能体正在签收操作票","正在校验操作票状态并登记签收记录");post({action,id})}
@@ -1395,7 +1508,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
           visibleMessages=messages.filter(m=>(!statusValue||m.status===statusValue)&&(!start||m.createdAt>=start));
           document.getElementById("countyFilterCount").textContent=`${visibleMessages.length} 条`;
           const pending=visibleMessages.filter(m=>m.status==="已送达").length;
-          box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span class="voiceBadge">✓ 已上传所选语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playSavedVoice(${i})">${savedVoiceIndex===i?"■ 停止回令录音":"▶ 播放回令录音"}</button>`:""}${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="openVoiceModal('${m.id}')">录音确认并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')
+          box.innerHTML=(pending?`<div class="notice">筛选结果中有 ${pending} 条待执行操作票，请及时处理并回令。</div>`:"")+(visibleMessages.length?visibleMessages.map((m,i)=>`<article class="card ${m.status==="已送达"?"newmsg":""}"><div class="head"><b>${esc(m.title)}</b><span>${m.time}</span></div><div class="route">哈尔滨市调度中心 → __COUNTY__调度智能体</div><div class="body">${esc(m.content)}</div><div class="meta">操作票号：${esc(m.ticket)}　·　状态：${esc(m.status)}${m.executedAt?`<br>执行时间：${esc(m.executedAt)}　·　操作账号：${esc(m.executedBy)}`:""}${m.voiceConfirmation?`<br><span class="voiceBadge">✓ 已上传所选语音确认</span>`:""}</div><div class="actions"><button onclick="speak(${i})">${speaking===i?"■ 停止":"▶ 试听指令"}</button>${m.voiceConfirmation?`<button onclick="playSavedVoice(${i})">${savedVoiceIndex===i?"■ 停止回令录音":"▶ 播放回令录音"}</button>`:""}<button onclick="downloadTicket(visibleMessages[${i}],'docx')">导出 DOCX</button><button onclick="downloadTicket(visibleMessages[${i}],'txt')">导出 TXT</button>${m.status==="已送达"?`<button class="primary" onclick="processMessage('ack','${m.id}')">签收操作票</button>`:""}${m.status==="已签收"?`<button class="primary" onclick="openVoiceModal('${m.id}')">录音确认并回令</button>`:""}</div></article>`).join(""):'<div class="empty">没有符合筛选条件的操作票。</div>')
         }
         function speak(i){if(speaking===i){speechSynthesis.cancel();speaking=-1;render();return}speechSynthesis.cancel();speaking=i;render();const u=new SpeechSynthesisUtterance(visibleMessages[i].content);u.lang="zh-CN";u.rate=.88;u.onend=u.onerror=()=>{speaking=-1;render()};speechSynthesis.speak(u)}
         function stopAllPlayback(){speechSynthesis.cancel();speaking=-1;if(savedVoiceAudio){savedVoiceAudio.pause();savedVoiceAudio.currentTime=0;savedVoiceAudio=null;savedVoiceIndex=-1}document.querySelectorAll("#attempts audio").forEach(a=>{a.pause();a.currentTime=0})}
@@ -1946,6 +2059,14 @@ recent_dispatches = [
         "executedAt": format_beijing_time(row["executed_at"]) if row["executed_at"] else "",
         "executedBy": row["executed_by"] or "",
         "voiceConfirmation": province_voice_confirmations.get(row["ticket_no"]),
+        **build_ticket_export(
+            title=row["title"], ticket_no=row["ticket_no"],
+            sender=row["sender"], receiver=row["receiver"],
+            target_county=row["target_county"], status=row["status"],
+            created_at=row["created_at"], content=row["content"],
+            executed_at=row["executed_at"], executed_by=row["executed_by"] or "",
+            dispatch_method=dispatch_origin(row)[1],
+        ),
     }
     for row in all_dispatch_messages
 ]
@@ -2094,7 +2215,7 @@ html = dedent(
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>__AGENT_STATE__　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
     <div class="back" id="back" onclick="if(event.target===this)closeModal()"><section class="modal"><div class="mh"><div><b>新建调度指令</b><small>接收地址和操作内容均可修改，确认后由省级智能体校验并下发</small></div><button class="close" onclick="closeModal()">×</button></div><div class="steps"><b>1</b><span>选择接收智能体</span><i></i><b>2</b><span>编辑指令内容</span><i></i><b>3</b><span>校验并下发</span></div><div class="addressGrid"><div class="editfield"><label>接收地市</label><select id="targetCitySelect" onchange="changeTicketCity()"></select></div><div class="editfield"><label>目标区县</label><select id="targetCountySelect" onchange="changeTicketCounty()"></select></div></div><div class="editfield"><label>调度任务名称</label><input id="taskName" value=""></div><div class="editfield"><label>操作票 / 调度指令内容（支持任意条数和自由格式）</label><textarea id="operationContent"></textarea></div><div class="target"><span>实际发送链路</span><b id="targetcity">哈尔滨市调度中心</b><span>关联节点</span><b id="targetcounty">南岗区智能体</b></div><div class="actions"><button onclick="speakEdited()">试听 AI 语音</button><button class="send" onclick="sendTicket()">校验并下发　→</button></div></section></div>
-    <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordmeta" id="recordMeta"></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button id="recordVoiceButton" onclick="toggleRecordConfirmation()" style="display:none">播放回令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
+    <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordmeta" id="recordMeta"></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button id="recordVoiceButton" onclick="toggleRecordConfirmation()" style="display:none">播放回令语音</button><button onclick="downloadCurrentTicket('docx')">导出 DOCX</button><button onclick="downloadCurrentTicket('txt')">导出 TXT</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
     <div class="globalProcessing" id="globalProcessing"><section class="globalProcessingCard"><div class="globalSpinner"></div><b id="globalProcessingTitle">正在处理</b><p id="globalProcessingDetail">正在同步调度数据<br>请稍候，不要重复点击或关闭页面</p><button class="globalProcessingClose" id="globalProcessingClose" onclick="closeGlobalProcessing()">关闭提示</button></section></div>
     <script>
     const cities=__CITIES__;
@@ -2491,6 +2612,8 @@ html = dedent(
     function changeTicketCounty(){selected=document.getElementById("targetCountySelect").value;document.getElementById("targetcounty").textContent=selected+"智能体";render()}
     function openModal(){syncTicketToTarget();document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
     let currentRecord="",currentRecordMessage=null,recordConfirmationAudio=null;
+    function exportName(m){return String(m.ticketNo||m.ticket||m.title||"操作票").replace(/[\\/:*?"<>|]/g,"_")}
+    function downloadCurrentTicket(type){const m=currentRecordMessage;if(!m)return;const a=document.createElement("a"),name=exportName(m);if(type==="docx"){a.href=m.docxDataUrl;a.download=name+".docx"}else{const blob=new Blob(["\ufeff"+(m.exportText||"")],{type:"text/plain;charset=utf-8"});a.href=URL.createObjectURL(blob);a.download=name+".txt";setTimeout(()=>URL.revokeObjectURL(a.href),1500)}document.body.appendChild(a);a.click();a.remove()}
     function openRecord(message){
       currentRecordMessage=message;currentRecord=message.content;
       document.getElementById("recordTitle").textContent=message.title;
