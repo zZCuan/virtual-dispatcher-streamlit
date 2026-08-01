@@ -18,7 +18,7 @@
         const args=event.data.args || {};
         if(!frame){
           frame=document.createElement("iframe");
-          frame.setAttribute("sandbox","allow-scripts allow-same-origin");
+          frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-downloads");
           document.getElementById("root").appendChild(frame);
         }
         frame.style.height=(args.height || 930)+"px";
