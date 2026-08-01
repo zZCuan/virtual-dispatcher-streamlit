@@ -1936,6 +1936,9 @@ recent_dispatches = [
         ),
         "county": row["target_county"],
         "route": f'{row["sender"]} → {row["receiver"]}',
+        "ticketNo": row["ticket_no"],
+        "sender": row["sender"],
+        "receiver": row["receiver"],
         "time": format_beijing_time(row["created_at"], "%m-%d %H:%M"),
         "createdAt": int(row["created_at"] * 1000),
         "content": row["content"],
@@ -2073,7 +2076,7 @@ html = dedent(
     .ticket{border-color:#cfe2dd;background:#f7fbfa}.ticket li{background:#edf6f3}.tickethead span,.target span,.mh small{color:#6f8982}.ticket li em,.steps b{background:#008f70;color:#fff}.target b{border-color:#cfe2dd;background:#f7fbfa}
     .actions button{border-color:#aad6ca;background:#edf7f4;color:#17604f}.actions .send{background:linear-gradient(105deg,#007f66,#00a779);color:#fff}
     .editfield{margin:12px 0}.editfield label{display:block;margin-bottom:6px;color:#54766e;font-size:9px}.editfield input,.editfield textarea,.editfield select{width:100%;padding:9px;border:1px solid #bddbd3;background:#fff;color:#193a33;outline:none}.editfield textarea{min-height:150px;resize:vertical;line-height:1.75}.editfield input:focus,.editfield textarea:focus,.editfield select:focus{border-color:#00a779;box-shadow:0 0 0 2px rgba(0,167,121,.1)}.addressGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .recordbody{padding:14px;background:#f6faf9;border:1px solid #d6e5e1;line-height:1.8;font-size:11px}.recordstatus{display:inline-block;margin-top:12px;padding:5px 10px;border-radius:15px;background:#def3ed;color:#007f66;font-size:9px}
+    .recordmeta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin:13px 0;padding:11px 13px;border:1px solid #d6e5e1;background:#fbfdfc}.recordmeta div{min-width:0}.recordmeta span{display:block;color:#78918b;font-size:8px}.recordmeta b{display:block;margin-top:3px;color:#24483f;font-size:10px;overflow-wrap:anywhere}.recordbody{padding:14px;background:#f6faf9;border:1px solid #d6e5e1;line-height:1.8;font-size:11px}.recordstatus{display:inline-block;margin-top:12px;padding:5px 10px;border-radius:15px;background:#def3ed;color:#007f66;font-size:9px}
     .globalProcessing{display:none;position:fixed;z-index:50;inset:0;background:rgba(9,45,37,.58);backdrop-filter:blur(4px);place-items:center}.globalProcessing.show{display:grid}.globalProcessingCard{width:390px;padding:30px;border:1px solid #9ed2c4;border-radius:12px;background:#fff;text-align:center;box-shadow:0 24px 70px #103f3645}.globalProcessingCard b{display:block;margin-top:14px;color:#193a33;font-size:15px}.globalProcessingCard p{margin:8px 0 0;color:#708a84;font-size:11px;line-height:1.8}.globalSpinner{width:42px;height:42px;margin:auto;border:4px solid #dceee9;border-top-color:#00a779;border-radius:50%;animation:globalSpin .8s linear infinite}.globalProcessingClose{display:none;margin:18px auto 0;padding:9px 28px;border:1px solid #b9d8d0;border-radius:6px;background:#fff;color:#176b59;cursor:pointer}.globalProcessing.timedOut .globalSpinner{display:none}.globalProcessing.timedOut .globalProcessingClose{display:block}@keyframes globalSpin{to{transform:rotate(360deg)}}
     /* 定点增加两号，避免父子元素继承造成图标重复放大 */
     .title span{font-size:11px}.title b{font-size:19px}.stat span{font-size:11px}.stat em{font-size:10px}.ph{font-size:14px}.ph small{font-size:10px}.ci b{font-size:13px}.ci small,.load{font-size:10px}.nt>b{font-size:13px}.nt,.legend{font-size:10px}.cnode small{font-size:9px}.knode small{font-size:9px}.sect{font-size:12px}.meta{font-size:11px}.meta span,.msg p,.delivery{font-size:9px}.rnode b{font-size:12px}.rnode small,.flow em{font-size:9px}
@@ -2091,7 +2094,7 @@ html = dedent(
       <footer class="foot"><span><i class="dot"></i>数据更新时间：<span id="footclock"></span></span><span>__AGENT_STATE__　·　通信延迟 32ms　·　运行环境 STREAMLIT DEMO</span></footer>
     </div>
     <div class="back" id="back" onclick="if(event.target===this)closeModal()"><section class="modal"><div class="mh"><div><b>新建调度指令</b><small>接收地址和操作内容均可修改，确认后由省级智能体校验并下发</small></div><button class="close" onclick="closeModal()">×</button></div><div class="steps"><b>1</b><span>选择接收智能体</span><i></i><b>2</b><span>编辑指令内容</span><i></i><b>3</b><span>校验并下发</span></div><div class="addressGrid"><div class="editfield"><label>接收地市</label><select id="targetCitySelect" onchange="changeTicketCity()"></select></div><div class="editfield"><label>目标区县</label><select id="targetCountySelect" onchange="changeTicketCounty()"></select></div></div><div class="editfield"><label>调度任务名称</label><input id="taskName" value=""></div><div class="editfield"><label>操作票 / 调度指令内容（支持任意条数和自由格式）</label><textarea id="operationContent"></textarea></div><div class="target"><span>实际发送链路</span><b id="targetcity">哈尔滨市调度中心</b><span>关联节点</span><b id="targetcounty">南岗区智能体</b></div><div class="actions"><button onclick="speakEdited()">试听 AI 语音</button><button class="send" onclick="sendTicket()">校验并下发　→</button></div></section></div>
-    <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
+    <div class="back" id="recordBack" onclick="if(event.target===this)closeRecord()"><section class="modal"><div class="mh"><div><b id="recordTitle">调度指令详情</b><small id="recordRoute"></small></div><button class="close" onclick="closeRecord()">×</button></div><div class="recordmeta" id="recordMeta"></div><div class="recordbody" id="recordContent"></div><span class="recordstatus" id="recordStatus"></span><div class="actions" style="margin-top:16px"><button onclick="speakRecord()">播放指令语音</button><button id="recordVoiceButton" onclick="toggleRecordConfirmation()" style="display:none">播放回令语音</button><button class="send" onclick="closeRecord()">关闭</button></div></section></div>
     <div class="globalProcessing" id="globalProcessing"><section class="globalProcessingCard"><div class="globalSpinner"></div><b id="globalProcessingTitle">正在处理</b><p id="globalProcessingDetail">正在同步调度数据<br>请稍候，不要重复点击或关闭页面</p><button class="globalProcessingClose" id="globalProcessingClose" onclick="closeGlobalProcessing()">关闭提示</button></section></div>
     <script>
     const cities=__CITIES__;
@@ -2459,7 +2462,7 @@ html = dedent(
       const box=document.getElementById("recentMessages");
       if(!filteredMessages.length){box.innerHTML='<div style="padding:22px 12px;color:#78918b;font-size:9px;text-align:center">没有符合筛选条件的调度指令</div>';return}
       box.innerHTML=filteredMessages.map((m,i)=>`<div class="msg" data-index="${i}"><div class="meta"><b>${escapeHtml(m.title)}</b><span>${escapeHtml(m.time)}</span></div><p><strong style="color:${m.method==="province"?"#087f68":"#b07819"}">【${escapeHtml(m.origin)}】</strong> ${escapeHtml(m.route)}</p><button class="audio" data-audio="${i}"><span class="play">${speakingIndex===i?"■":"▶"}</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>${speakingIndex===i?"停止播放":"试听指令"}</em></button>${m.voiceConfirmation?`<button class="audio confirmationAudio" data-confirmation="${i}"><span class="play">▶</span><i class="wave"><b></b><b></b><b></b><b></b><b></b><b></b></i><em>区县回令录音</em></button>`:""}<div class="delivery">✓ ${escapeHtml(m.status)}${m.executedAt?`<br>执行：${escapeHtml(m.executedAt)}<br>账号：${escapeHtml(m.executedBy)}`:""}${m.voiceConfirmation?`<br>语音：已确认`:""}</div></div>`).join("");
-      box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>{const m=filteredMessages[Number(card.dataset.index)];openRecord(m.title,m.route,m.status,m.content)});
+      box.querySelectorAll(".msg").forEach(card=>card.onclick=()=>openRecord(filteredMessages[Number(card.dataset.index)]));
       box.querySelectorAll(".audio:not(.confirmationAudio)").forEach(btn=>btn.onclick=e=>{e.stopPropagation();toggleMessageSpeech(Number(btn.dataset.audio))});raiseFonts();
       box.querySelectorAll(".confirmationAudio").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const voice=filteredMessages[Number(btn.dataset.confirmation)].voiceConfirmation;if(!voice?.audio_data_url)return;if(confirmationAudio){confirmationAudio.pause();confirmationAudio.currentTime=0;if(confirmationButton){confirmationButton.querySelector(".play").textContent="▶";confirmationButton.querySelector("em").textContent="区县回令录音"}const wasSame=confirmationButton===btn;confirmationAudio=null;confirmationButton=null;if(wasSame)return}confirmationAudio=new Audio(voice.audio_data_url);confirmationButton=btn;btn.querySelector(".play").textContent="■";btn.querySelector("em").textContent="停止回令录音";confirmationAudio.onended=confirmationAudio.onerror=()=>{btn.querySelector(".play").textContent="▶";btn.querySelector("em").textContent="区县回令录音";confirmationAudio=null;confirmationButton=null};confirmationAudio.play()});raiseFonts();
     }
@@ -2487,9 +2490,30 @@ html = dedent(
     function changeTicketCity(){active=Number(document.getElementById("targetCitySelect").value);selected=cities[active].counties[0];render();syncTicketToTarget()}
     function changeTicketCounty(){selected=document.getElementById("targetCountySelect").value;document.getElementById("targetcounty").textContent=selected+"智能体";render()}
     function openModal(){syncTicketToTarget();document.getElementById("back").classList.add("show")}function closeModal(){document.getElementById("back").classList.remove("show")}
-    let currentRecord="";
-    function openRecord(title,route,status,content){currentRecord=content;document.getElementById("recordTitle").textContent=title;document.getElementById("recordRoute").textContent=route;document.getElementById("recordStatus").textContent=status;document.getElementById("recordContent").textContent=content;document.getElementById("recordBack").classList.add("show")}
-    function closeRecord(){document.getElementById("recordBack").classList.remove("show")}
+    let currentRecord="",currentRecordMessage=null,recordConfirmationAudio=null;
+    function openRecord(message){
+      currentRecordMessage=message;currentRecord=message.content;
+      document.getElementById("recordTitle").textContent=message.title;
+      document.getElementById("recordRoute").textContent=message.route;
+      document.getElementById("recordStatus").textContent=message.status;
+      document.getElementById("recordContent").textContent=message.content;
+      document.getElementById("recordMeta").innerHTML=[
+        ["操作票号",message.ticketNo||"—"],["下发方式",message.origin||"—"],
+        ["发送智能体",message.sender||"—"],["接收智能体",message.receiver||"—"],
+        ["下发时间",message.time||"—"],["执行时间",message.executedAt||"尚未执行"],
+        ["执行账号",message.executedBy||"尚未回令"],["回令语音",message.voiceConfirmation?"已确认并上传":"暂无"]
+      ].map(([label,value])=>`<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("");
+      const voiceButton=document.getElementById("recordVoiceButton");voiceButton.style.display=message.voiceConfirmation?.audio_data_url?"inline-block":"none";voiceButton.textContent="播放回令语音";
+      document.getElementById("recordBack").classList.add("show")
+    }
+    function stopRecordConfirmation(){if(recordConfirmationAudio){recordConfirmationAudio.pause();recordConfirmationAudio.currentTime=0;recordConfirmationAudio=null}const button=document.getElementById("recordVoiceButton");if(button)button.textContent="播放回令语音"}
+    function toggleRecordConfirmation(){
+      const source=currentRecordMessage?.voiceConfirmation?.audio_data_url;if(!source)return;
+      if(recordConfirmationAudio){stopRecordConfirmation();return}
+      const button=document.getElementById("recordVoiceButton");recordConfirmationAudio=new Audio(source);button.textContent="停止回令语音";
+      recordConfirmationAudio.onended=recordConfirmationAudio.onerror=()=>stopRecordConfirmation();recordConfirmationAudio.play()
+    }
+    function closeRecord(){speechSynthesis.cancel();stopRecordConfirmation();document.getElementById("recordBack").classList.remove("show")}
     function speakRecord(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(currentRecord);u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function editedText(){return document.getElementById("taskName").value+"。"+document.getElementById("operationContent").value}
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
