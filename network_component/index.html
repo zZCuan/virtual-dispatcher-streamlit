@@ -13,6 +13,7 @@
       window.parent.postMessage({isStreamlitMessage:true,type,...data}, "*");
     };
     let frame;
+    let lastRenderNonce;
     window.addEventListener("message", event => {
       if(event.data?.type === "streamlit:render"){
         const args=event.data.args || {};
@@ -22,7 +23,15 @@
           document.getElementById("root").appendChild(frame);
         }
         frame.style.height=(args.height || 930)+"px";
-        frame.srcdoc=args.html || "";
+        const renderNonce=args.render_nonce ?? 0;
+        const liveMessage={type:"dashboard:data",payload:args.live_data || {}};
+        if(lastRenderNonce !== renderNonce){
+          lastRenderNonce=renderNonce;
+          frame.onload=()=>frame.contentWindow?.postMessage(liveMessage,"*");
+          frame.srcdoc=args.html || "";
+        }else{
+          frame.contentWindow?.postMessage(liveMessage,"*");
+        }
         send("streamlit:setFrameHeight",{height:args.height || 930});
       }
       if(event.data?.type === "networkTarget"){

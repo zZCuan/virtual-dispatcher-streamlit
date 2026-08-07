@@ -1266,6 +1266,15 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         if row["receiver"] == city_center and row["status"] == "已送达"
     )
     forwarded = sum(1 for row in rows if row["sender"] == city_center)
+    initial_record_type = st.session_state.pop("city_initial_record_type", "incoming")
+    city_live_revision = json.dumps(
+        [
+            [(row["id"], row["status"], row["executed_at"], row["executed_by"]) for row in rows],
+            sorted(online_counties),
+            st.session_state.get("city_live_revision_counter", 0),
+        ],
+        ensure_ascii=False,
+    )
     html = dedent(
         r"""
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
@@ -1295,7 +1304,7 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
 第三项，复核并向哈尔滨市调回令。</textarea></div><button class="send" onclick="sendDownstream()">确认并下发操作票</button></section></div>
         <div class="processing" id="processing"><section class="processingCard"><div class="processingSpinner"></div><b id="processingTitle">市级智能体正在处理操作票</b><p id="processingDetail">正在校验管辖范围、细化区县任务并写入共享任务库<br>请稍候，不要重复点击或关闭页面</p></section></div>
         <script>
-        const counties=__COUNTIES__,onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__;let selectedCounty="",recordType=__INITIAL_RECORD_TYPE__,speaking=-1,confirmationAudio=null,confirmationIndex=-1;
+        const counties=__COUNTIES__;let onlineCounties=new Set(__ONLINE_COUNTIES__),messages=__MESSAGES__,selectedCounty="",recordType=__INITIAL_RECORD_TYPE__,speaking=-1,confirmationAudio=null,confirmationIndex=-1,interactionPauseUntil=0,lastLiveRevision=__LIVE_REVISION__;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         function exportName(m){return String(m.ticket||m.ticketNo||m.title||"操作票").replace(/[\\/:*?"<>|]/g,"_")}
         function downloadTicket(m,type){const a=document.createElement("a"),name=exportName(m);if(type==="docx"){a.href=m.docxDataUrl;a.download=name+".docx"}else{const blob=new Blob(["\ufeff"+(m.exportText||"")],{type:"text/plain;charset=utf-8"});a.href=URL.createObjectURL(blob);a.download=name+".txt";setTimeout(()=>URL.revokeObjectURL(a.href),1500)}document.body.appendChild(a);a.click();a.remove()}
@@ -1312,8 +1321,12 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         function startProcessing(title,detail){document.getElementById("processingTitle").textContent=title;document.getElementById("processingDetail").innerHTML=detail+"<br>请稍候，不要重复点击或关闭页面";document.getElementById("processing").classList.add("show")}
         function processMessage(action,id,county){if(action==="ack")startProcessing("市级智能体正在签收指令","正在校验操作票状态并登记签收记录");else startProcessing(`正在转发至${county}智能体`,"正在承接省级任务、细化区县操作步骤并写入共享任务库");post({action,id})}
         function sendDownstream(){const button=document.querySelector(".modal .send");if(button.disabled)return;button.disabled=true;button.textContent="正在下发…";const payload={action:"downstream",county:document.getElementById("targetCounty").value,title:document.getElementById("taskTitle").value,steps:document.getElementById("taskSteps").value};closeModal();startProcessing(`正在下发至${payload.county}智能体`,"正在校验管辖范围、生成操作票并写入共享任务库");post(payload)}
+        function markInteraction(ms=12000){interactionPauseUntil=Math.max(interactionPauseUntil,Date.now()+ms)}
+        function canPoll(){return Date.now()>=interactionPauseUntil&&speaking<0&&!confirmationAudio&&!document.querySelector(".back.show,.processing.show")}
+        window.addEventListener("message",event=>{if(event.data?.type!=="dashboard:data")return;const data=event.data.payload||{};if(Array.isArray(data.messages))messages=data.messages;if(Array.isArray(data.onlineCounties))onlineCounties=new Set(data.onlineCounties);if(data.recordType)setRecordType(data.recordType);renderCounties();renderInbox();if(data.revision!==undefined&&data.revision!==lastLiveRevision){lastLiveRevision=data.revision;document.getElementById("processing").classList.remove("show")}});
+        document.addEventListener("pointerdown",()=>markInteraction(),true);document.addEventListener("input",()=>markInteraction(20000),true);document.addEventListener("change",()=>markInteraction(15000),true);
         renderCounties();setRecordType(recordType);raiseFonts();
-        setInterval(()=>{if(!document.querySelector(".back.show,.processing.show"))post({action:"autoRefresh"})},5000);
+        setInterval(()=>{if(canPoll())post({action:"autoRefresh"})},5000);
         </script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("南岗区", counties[0]).replace(
@@ -1327,8 +1340,10 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
     ).replace(
         "__MESSAGES__", json.dumps(message_data, ensure_ascii=False)
     ).replace(
+        "__LIVE_REVISION__", json.dumps(city_live_revision, ensure_ascii=False)
+    ).replace(
         "__INITIAL_RECORD_TYPE__",
-        json.dumps(st.session_state.pop("city_initial_record_type", "incoming")),
+        json.dumps(initial_record_type),
     ).replace("__COUNTY_ONLINE__", str(len(online_counties))).replace(
         "__COUNTY_TOTAL__", str(len(counties))
     ).replace("__UNREAD__", str(unread)
@@ -1341,6 +1356,12 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
         html=html,
         height=930,
         render_nonce=st.session_state.get("city_dashboard_render_nonce", 0),
+        live_data={
+            "messages": message_data,
+            "onlineCounties": online_counties,
+            "recordType": initial_record_type if initial_record_type == "outgoing" else None,
+            "revision": city_live_revision,
+        },
         key="harbin_dashboard",
         default=None,
     )
@@ -1354,11 +1375,13 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                 st.query_params.clear()
                 st.rerun()
             elif action in {"refresh", "autoRefresh"}:
+                # The component rerun that delivered this event has already loaded
+                # fresh rows.  live_data patches the existing iframe in place.
                 if action == "refresh":
-                    st.session_state["city_dashboard_render_nonce"] = (
-                        st.session_state.get("city_dashboard_render_nonce", 0) + 1
+                    st.session_state["city_live_revision_counter"] = (
+                        st.session_state.get("city_live_revision_counter", 0) + 1
                     )
-                st.rerun()
+                    st.rerun()
             elif action in {"ack", "forward"}:
                 message = next((row for row in rows if row["id"] == result.get("id")), None)
                 if message is not None:
@@ -1385,6 +1408,9 @@ def render_city_dashboard(city_name: str, counties: list[str], username: str) ->
                         f"共享任务库写入失败：{type(exc).__name__}："
                         f"{str(exc)[:180]}。操作票未下发。"
                     )
+                st.session_state["city_live_revision_counter"] = (
+                    st.session_state.get("city_live_revision_counter", 0) + 1
+                )
                 st.rerun()
 
 
@@ -1479,6 +1505,13 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
     ]
     pending = sum(1 for row in rows if row["status"] == "已送达")
     executed = sum(1 for row in rows if row["status"] == "已执行")
+    county_live_revision = json.dumps(
+        [
+            [(row["id"], row["status"], row["executed_at"], row["executed_by"]) for row in rows],
+            st.session_state.get("county_live_revision_counter", 0),
+        ],
+        ensure_ascii=False,
+    )
     html = dedent(
         r"""
         <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
@@ -1493,8 +1526,8 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         <div class="voiceBack" id="voiceBack"><section class="voiceModal"><div class="voiceHeader"><div><b>录制操作票语音确认</b><small id="voiceTicket"></small></div><button class="voiceClose" onclick="closeVoiceModal()">×</button></div><div class="voiceInstruction" id="voiceInstruction"></div><label class="microphoneRow"><span>麦克风设备</span><select id="microphoneSelect"><option value="">系统默认麦克风</option></select></label><div class="recorderBar"><button id="recordButton" onclick="toggleRecording()">● 开始录音</button><span class="recordHint" id="recordHint">可以反复录制；失败录音不会上传。</span></div><div class="attempts" id="attempts"></div><button class="voiceSubmit" id="voiceSubmit" onclick="submitSelectedVoice()" disabled>选定录音并确认回令</button></section></div>
         <div class="processing" id="processing"><section class="processingCard"><div class="processingSpinner"></div><b id="processingTitle">区县智能体正在处理操作票</b><p id="processingDetail">正在同步任务状态<br>请稍候，不要重复点击或关闭页面</p></section></div>
         <script>
-        const messages=__MESSAGES__;
-        let speaking=-1,visibleMessages=[...messages],voiceMessage=null,mediaRecorder=null,savedVoiceAudio=null,savedVoiceIndex=-1;
+        let messages=__MESSAGES__;
+        let speaking=-1,visibleMessages=[...messages],voiceMessage=null,mediaRecorder=null,savedVoiceAudio=null,savedVoiceIndex=-1,interactionPauseUntil=0,lastLiveRevision=__LIVE_REVISION__;
         let recordingStarted=0,recordingChunks=[],attempts=[],selectedAttempt=-1,recordStopTimer=null;
         const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         function exportName(m){return String(m.ticket||m.ticketNo||m.title||"操作票").replace(/[\\/:*?"<>|]/g,"_")}
@@ -1561,7 +1594,11 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
           startProcessing("正在提交语音确认回令","正在上传所选录音、登记执行账号并同步至市级和省级智能体");
           post({action:"executeWithVoice",id:voiceMessage.id,audioDataUrl:attempt.dataUrl,mimeType:attempt.mimeType,durationMs:attempt.durationMs})
         }
-        render();setInterval(()=>{if(!document.querySelector(".processing.show,.voiceBack.show"))post({action:"autoRefresh"})},5000);
+        function markInteraction(ms=12000){interactionPauseUntil=Math.max(interactionPauseUntil,Date.now()+ms)}
+        function canPoll(){return Date.now()>=interactionPauseUntil&&speaking<0&&!savedVoiceAudio&&mediaRecorder?.state!=="recording"&&!document.querySelector(".processing.show,.voiceBack.show")}
+        window.addEventListener("message",event=>{if(event.data?.type!=="dashboard:data")return;const data=event.data.payload||{};if(Array.isArray(data.messages)){messages=data.messages;render()}if(data.revision!==undefined&&data.revision!==lastLiveRevision){lastLiveRevision=data.revision;document.getElementById("processing").classList.remove("show")}});
+        document.addEventListener("pointerdown",()=>markInteraction(),true);document.addEventListener("input",()=>markInteraction(20000),true);document.addEventListener("change",()=>markInteraction(15000),true);
+        render();setInterval(()=>{if(canPoll())post({action:"autoRefresh"})},5000);
         </script></body></html>
         """
     ).replace("哈尔滨市", city_name).replace("nangang_county", username).replace(
@@ -1569,6 +1606,8 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         f'<div class="agentAvatar">{county.removesuffix("区").removesuffix("县").removesuffix("市")[:2]}</div>',
     ).replace("__COUNTY__", county).replace(
         "__MESSAGES__", json.dumps(messages, ensure_ascii=False)
+    ).replace(
+        "__LIVE_REVISION__", json.dumps(county_live_revision, ensure_ascii=False)
     ).replace("__PENDING__", str(pending)).replace("__EXECUTED__", str(executed))
     html = html.replace(
         "__AGENT_STATE__",
@@ -1578,6 +1617,7 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
         html=html,
         height=930,
         render_nonce=st.session_state.get("county_dashboard_render_nonce", 0),
+        live_data={"messages": messages, "revision": county_live_revision},
         key="county_dashboard",
         default=None,
     )
@@ -1590,11 +1630,12 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
                 clear_local_authentication()
                 st.rerun()
             if action in {"refresh", "autoRefresh"}:
+                # Fresh data is pushed into the mounted dashboard without replacing it.
                 if action == "refresh":
-                    st.session_state["county_dashboard_render_nonce"] = (
-                        st.session_state.get("county_dashboard_render_nonce", 0) + 1
+                    st.session_state["county_live_revision_counter"] = (
+                        st.session_state.get("county_live_revision_counter", 0) + 1
                     )
-                st.rerun()
+                    st.rerun()
             message = next((row for row in rows if row["id"] == result.get("id")), None)
             if message is not None and action == "ack":
                 acknowledge_message(message["id"])
@@ -1615,6 +1656,9 @@ def render_county_dashboard(county: str, city_name: str, username: str) -> None:
                     )
                 except Exception as error:
                     st.session_state["county_voice_error"] = f"语音回令未提交：{error}"
+                st.session_state["county_live_revision_counter"] = (
+                    st.session_state.get("county_live_revision_counter", 0) + 1
+                )
                 st.rerun()
 
 
@@ -2070,6 +2114,14 @@ recent_dispatches = [
     }
     for row in all_dispatch_messages
 ]
+province_live_revision = json.dumps(
+    [
+        [(row["id"], row["status"], row["executed_at"], row["executed_by"]) for row in all_dispatch_messages],
+        sorted(online_agents),
+        st.session_state.get("province_live_revision_counter", 0),
+    ],
+    ensure_ascii=False,
+)
 focused_city_name = st.session_state.get("network_focus_city")
 selected_city_name = (
     st.session_state.get("network_selected_city")
@@ -2222,7 +2274,7 @@ html = dedent(
     const hljGeo=__HLJ_GEOJSON__;
     const cityGeoCodes=__CITY_GEO_CODES__;
     const countyGeoCenters=__COUNTY_GEO_CENTERS__;
-    const recentMessages=__RECENT_MESSAGES__;
+    let recentMessages=__RECENT_MESSAGES__;
     const ticketTemplates=[
       {line:"哈西甲乙线",switchNo:"101",blade1:"1011",blade2:"1012"},
       {line:"齐南甲线",switchNo:"301",blade1:"3011",blade2:"3012"},
@@ -2554,7 +2606,7 @@ html = dedent(
     }
     function selectProvince(){focused=false;armedKey="";sessionStorage.removeItem("provinceNetworkSelection");render()}
     function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
-    let speakingIndex=-1,filteredMessages=[...recentMessages],confirmationAudio=null,confirmationButton=null;
+    let speakingIndex=-1,filteredMessages=[...recentMessages],confirmationAudio=null,confirmationButton=null,interactionPauseUntil=0,lastLiveRevision=__LIVE_REVISION__;
     function toggleFilters(){document.getElementById("filterGrid").classList.toggle("show")}
     function fillCountyFilter(){
       const city=document.getElementById("cityFilter").value,current=document.getElementById("countyFilter").value;
@@ -2642,8 +2694,12 @@ html = dedent(
     function speakEdited(){if(!("speechSynthesis" in window))return;const u=new SpeechSynthesisUtterance(editedText());u.lang="zh-CN";u.rate=.88;speechSynthesis.cancel();speechSynthesis.speak(u)}
     function speakText(){if(!("speechSynthesis" in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance("哈尔滨市调度员，请执行以下操作票任务。哈西甲乙线，由运行转检修。依次拉开一零一开关、一零一一刀闸、一零一二刀闸。操作完成后立即回令。");u.lang="zh-CN";u.rate=.88;document.getElementById("play").textContent="■";u.onend=()=>document.getElementById("play").textContent="▶";speechSynthesis.speak(u)}
     function sendTicket(){const title=document.getElementById("taskName").value.trim(),steps=document.getElementById("operationContent").value.trim();if(!title||!steps){alert("请填写调度任务名称和指令内容");return}closeModal();showGlobalProcessing("省级智能体正在下发操作票",`正在校验${cities[active].name}管辖范围、分析任务并写入共享任务库`);window.parent.postMessage({type:"networkTarget",action:"provinceDispatch",city:cities[active].name,county:selected,title,steps,nonce:Date.now()},"*")}
+    function markInteraction(ms=12000){interactionPauseUntil=Math.max(interactionPauseUntil,Date.now()+ms)}
+    function canPoll(){return Date.now()>=interactionPauseUntil&&!globalActionInFlight&&speakingIndex<0&&!confirmationAudio&&!recordConfirmationAudio&&!document.querySelector(".back.show,.globalProcessing.show")}
+    window.addEventListener("message",event=>{if(event.data?.type!=="dashboard:data")return;const data=event.data.payload||{};if(Array.isArray(data.messages)){recentMessages=data.messages;applyFilters()}if(data.revision!==undefined&&data.revision!==lastLiveRevision){lastLiveRevision=data.revision;document.getElementById("globalProcessing").classList.remove("show");globalActionInFlight=false}});
+    document.addEventListener("pointerdown",()=>markInteraction(),true);document.addEventListener("input",()=>markInteraction(20000),true);document.addEventListener("change",()=>markInteraction(15000),true);
     setInterval(()=>{const t=new Date().toLocaleTimeString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});const clock=document.getElementById("clock");if(clock)clock.textContent=t;document.getElementById("footclock").textContent=t},1000);
-    setInterval(()=>{if(!globalActionInFlight&&!document.querySelector(".back.show,.globalProcessing.show"))window.parent.postMessage({type:"networkTarget",action:"autoRefresh",nonce:Date.now()},"*")},5000);
+    setInterval(()=>{if(canPoll())window.parent.postMessage({type:"networkTarget",action:"autoRefresh",nonce:Date.now()},"*")},5000);
     render();initFilters();raiseFonts();
     </script>
     </body></html>
@@ -2656,6 +2712,8 @@ html = dedent(
     "__COUNTY_GEO_CENTERS__", json.dumps(county_geo_centers, ensure_ascii=False)
 ).replace(
     "__RECENT_MESSAGES__", json.dumps(recent_dispatches, ensure_ascii=False)
+).replace(
+    "__LIVE_REVISION__", json.dumps(province_live_revision, ensure_ascii=False)
 ).replace(
     "__TODAY_COUNT__", str(today_command_count)
 ).replace("__TODAY_STATUS__", today_delivery_text).replace(
@@ -2678,6 +2736,7 @@ network_selection = network_component(
     html=html,
     height=862,
     render_nonce=st.session_state.get("province_dashboard_render_nonce", 0),
+    live_data={"messages": recent_dispatches, "revision": province_live_revision},
     key="province_network_topology",
     default=None,
 )
@@ -2696,8 +2755,8 @@ if isinstance(network_selection, dict):
                 st.session_state["model_test_error"] = (
                     f"调度大模型测试失败：{model_note}"
                 )
-            st.session_state["province_dashboard_render_nonce"] = (
-                st.session_state.get("province_dashboard_render_nonce", 0) + 1
+            st.session_state["province_live_revision_counter"] = (
+                st.session_state.get("province_live_revision_counter", 0) + 1
             )
             st.rerun()
         if network_selection.get("action") == "provinceDispatch":
@@ -2728,19 +2787,21 @@ if isinstance(network_selection, dict):
                         f"共享任务库写入失败：{type(exc).__name__}："
                         f"{str(exc)[:180]}。操作票未下发。"
                     )
-                st.session_state["province_dashboard_render_nonce"] = (
-                    st.session_state.get("province_dashboard_render_nonce", 0) + 1
+                st.session_state["province_live_revision_counter"] = (
+                    st.session_state.get("province_live_revision_counter", 0) + 1
                 )
                 st.rerun()
         if network_selection.get("action") == "clearCommands":
             st.session_state["open_clear_dispatch_dialog"] = True
             st.rerun()
         if network_selection.get("action") in {"refresh", "autoRefresh"}:
+            # The current component run has already queried the newest records;
+            # live_data updates only the list inside the existing iframe.
             if network_selection.get("action") == "refresh":
-                st.session_state["province_dashboard_render_nonce"] = (
-                    st.session_state.get("province_dashboard_render_nonce", 0) + 1
+                st.session_state["province_live_revision_counter"] = (
+                    st.session_state.get("province_live_revision_counter", 0) + 1
                 )
-            st.rerun()
+                st.rerun()
         if network_selection.get("action") == "provinceSelect":
             for key in (
                 "network_focus_city",
